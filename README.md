@@ -1,11 +1,30 @@
 # plan1
 
-plan1 is an event planner for weddings, birthdays, and community events. It was built for Hack2Skill Challenge 5 (Celebration & Event Planner).
+**A GenAI event planner for weddings, birthdays, and community events.**
 
-The app keeps the theme, budget, guests, vendors, tasks, and timeline in one place. Gemini writes a starting point. You edit it.
+plan1 keeps the theme, budget, guests, vendors, tasks, and timeline in one place. Gemini writes a starting point. You edit it.
 
-- Live: https://plan1-zeta.vercel.app
-- Repo: https://github.com/harshdeepsinghin/plan1
+[![Live demo](https://img.shields.io/badge/live_demo-plan1--zeta.vercel.app-111111?style=flat-square&logo=vercel)](https://plan1-zeta.vercel.app)
+[![CI](https://github.com/harshdeepsinghin/plan1/actions/workflows/ci.yml/badge.svg)](https://github.com/harshdeepsinghin/plan1/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-3DA639?style=flat-square)](LICENSE)
+[![Next.js 16](https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs)](https://nextjs.org)
+[![Supabase](https://img.shields.io/badge/Supabase-Postgres-3FCF8E?style=flat-square&logo=supabase)](https://supabase.com)
+[![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4?style=flat-square&logo=googlegemini&logoColor=white)](https://ai.google.dev)
+
+[![plan1 landing page](docs/plan1-landing.png)](https://plan1-zeta.vercel.app)
+
+Live: https://plan1-zeta.vercel.app  
+Repo: https://github.com/harshdeepsinghin/plan1
+
+Built for Hack2Skill Challenge 5 (Celebration & Event Planner).
+
+## Try it
+
+1. Open https://plan1-zeta.vercel.app.
+2. Create an account with email or Google.
+3. Add an event with a date, venue, guest count, and budget.
+4. Gemini writes a first theme, timeline, and budget while the event is created.
+5. Open the assistant tab for vendor ideas, activities, checklists, and speeches.
 
 ## The problem
 
@@ -49,6 +68,18 @@ Planning an event means keeping track of a lot of small decisions. The theme liv
 | Google Maps | Directions links and a lazy-loaded venue map |
 | Google Fonts | Inter through `next/font/google` |
 | Google Analytics 4 | Optional page analytics when `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set |
+
+## Architecture
+
+```mermaid
+flowchart TD
+    Browser --> Next[Next.js App Router on Vercel]
+    Next --> Actions[Server Actions]
+    Next --> Auth[Supabase Auth]
+    Actions --> DB[(Supabase Postgres with RLS)]
+    Actions --> Gemini[Google Gemini API]
+    Next --> Google[Google Maps, Calendar, Fonts, Analytics]
+```
 
 ## How it works
 
@@ -160,7 +191,7 @@ supabase/
 
 ### Requirements
 
-- Node.js 18 or newer
+- Node.js 20 or newer
 - A free Supabase project
 - A Gemini API key from Google AI Studio
 - A Vercel account for deployment
