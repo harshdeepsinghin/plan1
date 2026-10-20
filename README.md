@@ -1,155 +1,171 @@
-# 🎉 EventPlanner — GenAI Celebration & Event Planner
+# plan1
 
-> **Hack2Skill Challenge 5 submission** — a full event planning workspace for weddings, birthdays, and community events, with Google Gemini doing the first draft.
+plan1 is an event planner for weddings, birthdays, and community events. It was built for Hack2Skill Challenge 5 (Celebration & Event Planner).
 
-[![Deployed on Vercel](https://img.shields.io/badge/Deployed%20on-Vercel-000000?logo=vercel)](https://plan1-zeta.vercel.app)
-[![Database: Supabase](https://img.shields.io/badge/Database-Supabase-3ECF8E?logo=supabase)](https://supabase.com)
-[![AI: Google Gemini](https://img.shields.io/badge/AI-Google%20Gemini-4285F4?logo=google)](https://ai.google.dev)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+The app keeps the theme, budget, guests, vendors, tasks, and timeline in one place. Gemini writes a starting point. You edit it.
 
-## 🎯 Challenge vertical
+- Live: https://plan1-zeta.vercel.app
+- Repo: https://github.com/harshdeepsinghin/plan1
 
-**Celebration & Event Planner (Challenge 5).** Planning a celebration is a long list of connected decisions: the theme, the money, the venue, the vendors, the guest list, and the countdown. EventPlanner turns those decisions into one living plan instead of six disconnected spreadsheets.
+## The problem
 
-## 🚀 Live demo
+Planning an event means keeping track of a lot of small decisions. The theme lives in a mood board, the budget lives in a spreadsheet, vendors live in email, and the guest list lives in a chat. plan1 puts those pieces under one event so you can see what is done and what still needs attention.
 
-**https://plan1-zeta.vercel.app**
+## What it does
 
-Create a free account, then create an event. Gemini generates the first theme, budget, and timeline in a few seconds.
+### Planning tools
 
-## ✨ What it does
+- **Theme:** a theme name, description, colour palette, mood keywords, and decor direction
+- **Budget:** categories, line items, estimated cost, actual cost, and remaining budget
+- **Timeline:** milestones with due dates, priorities, categories, and overdue states
+- **Vendors:** a board from research to booked, with quotes, contacts, ratings, and notes
+- **Guests:** CSV import and export, RSVP status, groups, plus-ones, and dietary notes
+- **Tasks:** a board with due dates, priorities, assignees, and notes
+- **Collaboration:** invite an existing planner as an editor or viewer
+- **Preferences:** currency, timezone, date format, and default occasion
+- **Exports:** guest CSV, budget CSV, timeline CSV, full plan JSON, and an `.ics` file
 
-### AI generators (8 specialised tools + chat)
+### Gemini tools
 
-| Tool | What it produces |
+| Tool | Output |
 | --- | --- |
-| **Theme generator** | Theme name, description, decor direction, mood keywords, 5-colour palette |
-| **Colour palette** | A focused palette with hex codes and usage notes |
-| **Budget breakdown** | Category allocations sized to the event budget |
-| **Timeline generator** | Milestones from 12+ months out to day-of, with priorities and categories |
-| **Vendor suggestions** | Vendor categories, search queries, questions to ask, red flags |
-| **Activity ideas** | Entertainment and guest-experience ideas tailored to the event |
-| **Checklist generator** | Phase-based planning checklist with priorities |
-| **Speech & toast writer** | Multiple drafts for any role and tone |
-| **AI chat assistant** | A planning conversation that knows the event's date, venue, guest count, and budget |
+| Theme | Theme name, description, palette, mood keywords, decor direction |
+| Colour palette | Five colours with hex codes and usage notes |
+| Budget breakdown | Suggested category amounts for the event budget |
+| Timeline | Milestones from today to the event date |
+| Vendor suggestions | Vendor types, search ideas, questions to ask, and red flags |
+| Activities | Entertainment ideas, rituals, and things for guests to do |
+| Checklist | A to-do list grouped by phase and priority |
+| Speech writer | Drafts for a role and tone, ready to edit |
+| Chat | Answers about the venue, budget, guests, or run of show |
 
-### Full event management
+### Google services
 
-- **Budget tracker** — categories, line items, estimated vs actual spend, live totals
-- **Timeline** — milestone list, priorities, due dates, overdue states, completion tracking
-- **Vendors** — drag-and-drop Kanban (research → contacted → quoted → negotiating → booked), quotes, ratings, contacts
-- **Guests** — CSV import/export, RSVP status, groups, plus-ones, dietary notes
-- **Tasks** — drag-and-drop Kanban, priorities, due dates, assignees, notes
-- **Collaboration** — invite an existing planner as editor or viewer; owner-only settings and deletion
-- **Exports** — guest CSV, budget CSV, timeline CSV, full-plan JSON, and an `.ics` calendar file
-- **Google links** — add the event to Google Calendar and open the venue in Google Maps
+| Service | Use |
+| --- | --- |
+| Google Gemini | Themes, budgets, timelines, vendor ideas, activities, checklists, speeches, and chat |
+| Google Sign-In | OAuth through Supabase Auth |
+| Google Calendar | Add an event to Google Calendar from the overview or settings |
+| Google Maps | Directions links and a lazy-loaded venue map |
+| Google Fonts | Inter through `next/font/google` |
+| Google Analytics 4 | Optional page analytics when `NEXT_PUBLIC_GA_MEASUREMENT_ID` is set |
 
-### Design & UX
+## How it works
 
-- Responsive desktop sidebar and mobile navigation
-- Dark/light mode with system detection
-- shadcn/ui components on Radix primitives
-- Loading states, empty states, toasts, and confirmation dialogs
-- Server-rendered pages with client-side interactivity where it matters
+### Creating an event
 
-## 🧠 Approach & logic
+1. The form checks the input with Zod and inserts a row in `events`.
+2. Three Gemini calls run in parallel: theme, timeline, and budget.
+3. The theme is stored on `events.ai_generated_theme`. Timeline rows go into `milestones`. Budget rows go into `budget_categories`. Raw output is kept in `ai_ideas`.
+4. If a Gemini call fails, the event is still created. The planner can try again from the assistant.
+5. The user lands on the event overview with whatever was generated.
 
-### One event context, many AI outputs
+### Prompts and context
 
-Every generator receives the same context: event type, title, date, venue, guest count, budget, spent amount, location, cultural background, and free-text preferences. Prompts live in `src/lib/gemini/prompts.ts` and ask for structured JSON so the UI can render results instead of a wall of text.
+Every generator gets the same event context: type, title, date, venue, guest count, budget, amount spent, location, cultural background, and free-text notes. The prompts are in `src/lib/gemini/prompts.ts` and return structured JSON so the UI can render the result.
 
-### Event creation flow
+All prompts also get a style instruction: write in plain English, avoid em dashes and en dashes, and skip marketing language. This keeps generated copy closer to something a person would write.
 
-1. The form validates input with Zod and inserts an `events` row.
-2. Three Gemini calls run in parallel: theme, timeline, and budget breakdown.
-3. The theme is stored on `events.ai_generated_theme`; timeline rows go into `milestones`; budget rows go into `budget_categories`; raw generations are also kept in `ai_ideas`.
-4. AI failures are **non-fatal**. The event is still created, and the planner can retry from the AI Assistant.
-5. The user lands on the event overview with the plan already populated.
+### Gemini client
 
-### Resilient Gemini client
+`src/lib/gemini/client.ts` calls the Gemini REST API directly.
 
-`src/lib/gemini/client.ts` calls the Gemini REST API directly and handles free-tier reality:
+- Primary model: `gemini-3.6-flash`
+- Fallback chain: `gemini-3.1-flash-lite`, `gemini-3.5-flash-lite`, `gemini-3.5-flash`
+- 12 second timeout per model for JSON, 25 seconds for long text
+- 45 second total budget for JSON, 80 seconds for text
+- One retry on `429`, then move to the next model
+- Thinking is disabled on full Flash models to reduce latency
+- JSON wrapped in prose or code fences is extracted before parsing
+- Rate limits and busy endpoints get a short, readable error
 
-- primary model: **Gemini 3.6 Flash**
-- fallback chain: Gemini 3.1 Flash-Lite → 3.5 Flash-Lite → 3.5 Flash
-- 12-second per-model timeout for structured JSON, with a 45-second total budget
-- one backoff retry on `429`, then fall through to the next model
-- thinking disabled on full Flash models to keep responses fast
-- fenced/prose-wrapped JSON is extracted and parsed
-- friendly errors for rate limits and busy endpoints
+You can override the model chain with `GEMINI_MODEL` and `GEMINI_FALLBACK_MODELS`.
 
-The model chain can be overridden with `GEMINI_MODEL` and `GEMINI_FALLBACK_MODELS`.
+### Permissions
 
-### Data access and permissions
+Supabase Row Level Security protects every table. Owners can read and write their own events. Collaborators can read an event after they accept an invite. Editors can update content. Viewers are read-only.
 
-Supabase Row Level Security protects every table. Owners can read and write their own events. Collaborators can read an event once their invitation is accepted; editors can update content; viewers get read-only access. `SECURITY DEFINER` helper functions (`is_event_owner`, `can_access_event`, `can_edit_event`, and category equivalents) avoid recursive RLS policies.
+`SECURITY DEFINER` helpers such as `is_event_owner`, `can_access_event`, and `can_edit_event` keep the policies from calling themselves recursively. Event settings, collaborator management, and event deletion are owner-only.
 
-Collaborator invitations target an existing planner account and are granted immediately, so there is no broken "pending forever" state. Event details, collaborator management, and deletion remain owner-only.
+Invites are matched to an existing planner account and accepted immediately. There is no email delivery service in this build, so there is no pending invite state.
 
-### Mutations
+### Server actions
 
-All writes are Next.js Server Actions in `src/actions/`. Forms are plain controlled forms or native form submissions, validated with Zod, and revalidate the affected routes after success. No public mutation API is exposed.
+All writes are Next.js Server Actions in `src/actions/`. Forms are validated with Zod, the action checks the current user, and affected routes are revalidated after success. No public write API is exposed.
 
-## 🛠️ Tech stack (free tiers)
+### Preferences
+
+Currency, timezone, date format, and default occasion are stored on `profiles`. The dashboard layout passes them to a client provider, and shared formatters handle display in the rest of the app.
+
+Currency changes labels and future Gemini estimates. Amounts are stored as plain numbers and are not converted when the currency changes. The profile page says this next to the setting.
+
+## Stack
 
 | Layer | Technology |
 | --- | --- |
-| Frontend | Next.js 16 (App Router), React 19, TypeScript |
+| Frontend | Next.js 16 App Router, React 19, TypeScript |
 | Styling | Tailwind CSS 4, shadcn/ui, Radix UI, lucide-react |
 | Database | Supabase PostgreSQL with Row Level Security |
-| Auth | Supabase Auth — email/password, Google OAuth, magic links |
-| GenAI | Google Gemini API (Google AI Studio free tier) |
-| Deployment | Vercel + Supabase |
-| Drag & drop | @dnd-kit |
+| Auth | Supabase Auth with email/password, Google OAuth, and email links |
+| Gemini | Google Gemini API on the free AI Studio tier |
+| Hosting | Vercel |
+| Drag and drop | dnd-kit |
 | Validation | Zod |
 
-## 🏗️ Project structure
+## Project structure
 
 ```text
 src/
 ├── app/
 │   ├── auth/                  # login, signup, callback, password reset
 │   ├── (dashboard)/
-│   │   ├── dashboard/         # owned + shared events
+│   │   ├── dashboard/         # owned and shared events
 │   │   ├── events/
-│   │   │   ├── new/           # create event + first AI draft
+│   │   │   ├── new/           # create event and first draft
 │   │   │   └── [id]/
-│   │   │       ├── overview/  # theme, progress, next milestones
-│   │   │       ├── budget/    # categories and line items
-│   │   │       ├── timeline/  # milestones
-│   │   │       ├── vendors/   # vendor Kanban
-│   │   │       ├── guests/    # guest list and CSV
-│   │   │       ├── tasks/     # task Kanban
+│   │   │       ├── overview/
+│   │   │       ├── budget/
+│   │   │       ├── timeline/
+│   │   │       ├── vendors/
+│   │   │       ├── guests/
+│   │   │       ├── tasks/
 │   │   │       ├── ai-assistant/
-│   │   │       └── settings/  # details, collaborators, exports
+│   │   │       └── settings/
 │   │   └── profile/
 │   ├── globals.css
 │   └── page.tsx               # landing page
-├── actions/                   # server actions (auth, events, AI, CRUD)
-├── components/                # layout, domain components, shadcn/ui
+├── actions/                   # server actions
+├── components/
+│   ├── brand/                 # plan1 mark and wordmark
+│   ├── layout/                # header and event sidebar
+│   ├── navigation/            # intent-based prefetch link
+│   └── ui/                    # shadcn/ui primitives
 ├── lib/
-│   ├── gemini/                # REST client and prompt library
+│   ├── auth.ts                # request-scoped user and profile
+│   ├── data/                  # request-scoped event queries
+│   ├── gemini/                # API client and prompts
+│   ├── preferences.ts         # currency, timezone, date formats
 │   ├── supabase/              # browser and server clients
 │   ├── validations/           # Zod schemas
 │   └── utils.ts
-├── proxy.ts                   # session refresh / auth gate
+├── proxy.ts                   # session refresh and route gate
 └── types/
 
 supabase/
-├── migrations/                # schema, profiles/collaboration, RLS fixes
+├── migrations/
 └── seed.sql
 ```
 
-## 📦 Getting started
+## Run it locally
 
-### Prerequisites
+### Requirements
 
-- Node.js 18+ and npm
+- Node.js 18 or newer
 - A free Supabase project
-- A Gemini API key from [Google AI Studio](https://aistudio.google.com/)
-- A Vercel account (for deployment)
+- A Gemini API key from Google AI Studio
+- A Vercel account for deployment
 
-### 1. Clone and install
+### 1. Install
 
 ```bash
 git clone https://github.com/harshdeepsinghin/plan1.git
@@ -168,11 +184,13 @@ NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
 NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 
 GOOGLE_GEMINI_API_KEY=your-gemini-api-key
-# Optional overrides:
-# GEMINI_MODEL=gemini-3.6-flash
-# GEMINI_FALLBACK_MODELS=gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-3.5-flash
 
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Optional
+# GEMINI_MODEL=gemini-3.6-flash
+# GEMINI_FALLBACK_MODELS=gemini-3.1-flash-lite,gemini-3.5-flash-lite,gemini-3.5-flash
+# NEXT_PUBLIC_GA_MEASUREMENT_ID=G-XXXXXXXXXX
 ```
 
 ### 3. Database
@@ -182,76 +200,82 @@ npx supabase link --project-ref your-project-ref
 npx supabase db push
 ```
 
-This applies all three migrations in order. If you prefer, paste the files from `supabase/migrations/` into the Supabase SQL Editor.
+This applies the four migrations in order. You can also paste the files from `supabase/migrations/` into the Supabase SQL Editor.
 
 ### 4. Supabase Auth
 
-In **Authentication → URL Configuration**:
+In Authentication, open URL Configuration.
 
-- Site URL: your deployment URL (or `http://localhost:3000`)
-- Redirect URLs: `http://localhost:3000/auth/callback`, `https://your-app.vercel.app/auth/callback`
+- Site URL: your deployment URL or `http://localhost:3000`
+- Redirect URLs: `http://localhost:3000/auth/callback` and `https://your-app.vercel.app/auth/callback`
 
-For Google sign-in, enable the **Google** provider in **Authentication → Providers** and add the Supabase callback URL (`https://<project-ref>.supabase.co/auth/v1/callback`) to the Google OAuth client's authorised redirect URIs.
+For Google sign-in, enable the Google provider under Authentication > Providers. Add `https://<project-ref>.supabase.co/auth/v1/callback` to the Google OAuth client's authorised redirect URIs.
 
-### 5. Run locally
+### 5. Start the app
 
 ```bash
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000).
+Open http://localhost:3000.
 
 ### 6. Deploy
 
-Push to GitHub, import the repository in Vercel, add the environment variables above, and deploy. Set `NEXT_PUBLIC_APP_URL` to the production URL.
+Push to GitHub, import the repo in Vercel, add the environment variables, and deploy. Set `NEXT_PUBLIC_APP_URL` to the production URL.
 
-## 🔐 Security
+## Performance
 
-- RLS on every user-facing table
-- Server-side session checks in pages and actions
-- Owner/editor/viewer permission checks for event mutations
-- Zod validation on event and domain inputs
-- Secrets only in environment variables; `client_secret_*.json` and `.env*` are gitignored
-- Auth callback validates the `next` redirect to prevent open redirects
+- Vercel Functions run in `bom1` (Mumbai), next to the Supabase project in `ap-south-1`
+- `cache()` shares one Supabase client, one auth check, one profile query, and one event query across a request
+- Event routes have loading skeletons, so a click shows a skeleton while the page loads
+- Sidebar links prefetch the full route after hover or focus, not on first paint
+- The client router cache keeps visited event tabs for 30 seconds
+- The session proxy only runs on `/dashboard`, `/events`, and `/profile`
+- Overview and settings queries use `Promise.all`
+- The Google Map only loads when it scrolls into view
 
-## 🧪 Testing
+## Security
+
+- Row Level Security on every user-facing table
+- Session checks in pages, layouts, and server actions
+- Owner, editor, and viewer checks on event mutations
+- Zod validation on event and domain input
+- Secrets only in environment variables; `.env*` and `client_secret_*.json` are gitignored
+- The auth callback validates the `next` redirect to prevent open redirects
+
+## Testing
 
 ```bash
-# Type checking
 npx tsc --noEmit
-
-# Lint
 npm run lint
-
-# Production build
 npm run build
 ```
 
-The app was exercised end-to-end in Playwright: signup/login, event creation with AI, budget items, timeline milestones, vendors, guests, tasks, AI theme/chat/speech, profile updates, collaborator access, and mobile navigation.
+The app was tested in Playwright on desktop and mobile: signup and login, event creation, budget items, timeline milestones, vendors, guests, tasks, theme and chat generation, speech drafts, preference updates, currency and date display, collaborator access, and the Google Map embed.
 
-## 📝 Assumptions
+## Assumptions and limits
 
-1. **One currency** — budgets are displayed in USD, matching the creation form.
-2. **Existing accounts for collaboration** — an invite uses a planner email that already has a profile; there is no email delivery service in the free build.
-3. **AI is a first draft** — generated plans are editable, and a failed AI call never blocks event creation.
-4. **Free-tier limits are real** — Gemini may return rate limits or high-demand errors; the model fallback chain handles the common cases.
-5. **Demo scale** — this is a hackathon build, not a multi-tenant production system.
-6. **Repo limit** — the repository stays under 10 MB; `node_modules`, build output, local env files, and Playwright artifacts are excluded.
-7. **Single branch** — only `main` is used.
+1. Currency is a display setting. Amounts are not converted when you change it. Gemini receives the selected currency for new estimates.
+2. Collaboration requires an existing account. There is no email service in the free build.
+3. Gemini output is a starting point. Every generated section is editable, and a failed call does not block event creation.
+4. The Gemini free tier has rate limits and busy periods. The fallback chain handles the common cases, but it is not unlimited.
+5. This is a hackathon project, not a multi-tenant production system.
+6. The repo stays under 10 MB. `node_modules`, build output, local env files, and Playwright artifacts are ignored.
+7. The project uses one branch, `main`.
 
-## 🔮 Future enhancements
+## Future work
 
-- Email invitations and RSVP notifications (Supabase Edge Functions + Resend)
-- Realtime presence and live cursors for collaborators
+- Email invites and RSVP notifications through Supabase Edge Functions and Resend
+- Live presence for collaborators
 - Public read-only share links with RSVP
-- PDF plan export and printed timelines
+- PDF export for the full plan
 - Photo mood boards and vendor attachments
-- Calendar sync beyond the one-click Google Calendar link
+- Two-way calendar sync
 
-## 📄 License
+## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
 
 ---
 
-Built for **Hack2Skill Challenge 5** with Next.js, Supabase, and Google Gemini.
+Built for Hack2Skill Challenge 5 with Next.js, Supabase, and Google Gemini.

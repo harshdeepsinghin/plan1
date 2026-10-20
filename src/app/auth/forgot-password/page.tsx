@@ -14,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { BrandLogo } from "@/components/brand/logo"
 import { Loader2, Mail } from "lucide-react"
 
 export default function ForgotPasswordPage() {
@@ -45,16 +46,16 @@ export default function ForgotPasswordPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-background">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col items-center justify-center px-4 py-10">
-        <Link href="/" className="mb-8 flex items-center gap-2 text-2xl font-bold">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            🎉
-          </span>
-          EventPlanner
-        </Link>
+        <BrandLogo
+          href="/"
+          className="mb-8"
+          markClassName="h-11 w-11 rounded-2xl"
+          wordmarkClassName="text-2xl"
+        />
         <Card className="w-full max-w-md shadow-xl">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">Reset your password</CardTitle>
-            <CardDescription>We&apos;ll email you a secure reset link</CardDescription>
+            <CardDescription>We&apos;ll email you a link to reset it.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {error && (

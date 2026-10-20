@@ -40,16 +40,7 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     * - public folder
-     * - auth routes (login, signup, callback)
-     * - api routes
-     */
-    '/((?!_next/static|_next/image|favicon.ico|public|auth|api).*)',
-  ],
+  // Only refresh sessions for authenticated pages. Public marketing and auth
+  // pages no longer pay a Supabase Auth round-trip on every visit.
+  matcher: ['/dashboard/:path*', '/events/:path*', '/profile/:path*'],
 }

@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { getEvent } from "@/actions/event"
+import { getCurrentUser } from "@/lib/auth"
+import { getEvent } from "@/lib/data/events"
 import { SettingsClient } from "./settings-client"
 
 interface Props {
@@ -9,10 +10,8 @@ interface Props {
 
 export default async function SettingsPage({ params }: Props) {
   const { id } = await params
+  const user = await getCurrentUser()
   const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
 
   if (!user) redirect("/auth/login")
 

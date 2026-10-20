@@ -1,6 +1,8 @@
 import Link from "next/link"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { getCurrentProfile, getCurrentUser } from "@/lib/auth"
+import { createFormatters, resolvePreferences } from "@/lib/preferences"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -18,8 +20,6 @@ import {
   Bot,
 } from "lucide-react"
 import {
-  formatCurrency,
-  formatDate,
   getDaysUntil,
   getEventTypeLabel,
   getStatusColor,
@@ -28,7 +28,7 @@ import {
 } from "@/lib/utils"
 
 export const metadata = {
-  title: "Dashboard | EventPlanner",
+  title: "Dashboard | plan1",
 }
 
 interface EventRecord {
@@ -46,18 +46,13 @@ interface EventRecord {
 }
 
 export default async function DashboardPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   if (!user) redirect("/auth/login")
 
-  const { data: profile } = await supabase
-    .from("profiles")
-    .select("full_name")
-    .eq("id", user.id)
-    .maybeSingle()
+  const [profile, supabase] = await Promise.all([getCurrentProfile(), createClient()])
+  const formatters = createFormatters(resolvePreferences(profile))
+  const { formatCurrency } = formatters
 
   const [{ data: ownedEvents }, { data: memberships }] = await Promise.all([
     supabase
@@ -100,15 +95,15 @@ export default async function DashboardPage() {
           <div>
             <div className="mb-2 inline-flex items-center gap-2 rounded-full border bg-background/70 px-3 py-1 text-xs font-medium text-primary">
               <Sparkles className="h-3.5 w-3.5" />
-              Powered by Google Gemini
+              Gemini planning help
             </div>
             <h1 className="text-3xl font-bold tracking-tight">
-              Welcome back, {firstName} 👋
+              Welcome back, {firstName}.
             </h1>
             <p className="mt-2 max-w-xl text-muted-foreground">
               {events.length === 0
-                ? "Create your first event and let AI build the theme, budget, and timeline in seconds."
-                : `You have ${upcoming.length} upcoming ${upcoming.length === 1 ? "event" : "events"}. Let's make it unforgettable.`}
+                ? "Create your first event. Gemini will draft a theme, budget, and timeline you can edit."
+                : `You have ${upcoming.length} upcoming ${upcoming.length === 1 ? "event" : "events"}.`}
             </p>
           </div>
           <Button asChild size="lg" className="shrink-0">
@@ -136,15 +131,15 @@ export default async function DashboardPage() {
         />
         <StatCard
           icon={<Users className="h-5 w-5" />}
-          label="Guest target"
+          label="Total guests"
           value={String(totalGuests)}
           hint="across all events"
         />
         <StatCard
           icon={<Bot className="h-5 w-5" />}
-          label="AI plans created"
+          label="Theme drafts"
           value={String(events.filter((event) => event.ai_generated_theme).length)}
-          hint="themes generated"
+          hint="created with Gemini"
         />
       </section>
 
@@ -154,7 +149,7 @@ export default async function DashboardPage() {
           <div>
             <h2 className="text-xl font-semibold">Your events</h2>
             <p className="text-sm text-muted-foreground">
-              Every celebration, organised in one place
+              Pick up where you left off.
             </p>
           </div>
           <Button asChild variant="outline" size="sm">
@@ -174,8 +169,8 @@ export default async function DashboardPage() {
               <div>
                 <h3 className="text-lg font-semibold">No events yet</h3>
                 <p className="mx-auto mt-1 max-w-sm text-sm text-muted-foreground">
-                  Tell us the occasion and date — Gemini will suggest a theme, a full budget
-                  breakdown, and a planning timeline.
+                  Add the date, guest count, and budget. Gemini will suggest a theme, a budget
+                  split, and a timeline.
                 </p>
               </div>
               <Button asChild>
@@ -189,7 +184,7 @@ export default async function DashboardPage() {
         ) : (
           <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
             {events.map((event) => (
-              <EventCard key={event.id} event={event} />
+              <EventCard key={event.id} event={event} formatters={formatters} />
             ))}
           </div>
         )}
@@ -225,7 +220,14 @@ function StatCard({
   )
 }
 
-function EventCard({ event }: { event: EventRecord }) {
+function EventCard({
+  event,
+  formatters,
+}: {
+  event: EventRecord
+  formatters: ReturnType<typeof createFormatters>
+}) {
+  const { formatCurrency, formatDate } = formatters
   const daysLeft = getDaysUntil(event.event_date)
   const budgetPercent =
     Number(event.budget_total) > 0
@@ -274,7 +276,7 @@ function EventCard({ event }: { event: EventRecord }) {
           </p>
           <p className="flex items-center gap-2">
             <MapPin className="h-4 w-4" />
-            <span className="truncate">{event.venue || "Venue to be decided"}</span>
+            <span className="truncate">{event.venue || "No venue yet"}</span>
           </p>
           <p className="flex items-center gap-2">
             <Users className="h-4 w-4" />

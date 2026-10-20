@@ -46,7 +46,7 @@ import {
   Loader2,
   Heart,
 } from "lucide-react"
-import { cn, formatDate, getStatusColor } from "@/lib/utils"
+import { cn, getStatusColor } from "@/lib/utils"
 
 export interface Guest {
   id: string
@@ -368,7 +368,7 @@ export function GuestsClient({ eventId, initialGuests }: Props) {
             <div>
               <h3 className="font-semibold">No guests yet</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Add guests one by one or import a CSV list in seconds.
+                Add guests one at a time or import a CSV.
               </p>
             </div>
             <div className="flex gap-2">
@@ -423,7 +423,7 @@ export function GuestsClient({ eventId, initialGuests }: Props) {
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add a guest</DialogTitle>
-            <DialogDescription>They&apos;ll show up in your guest list right away.</DialogDescription>
+            <DialogDescription>They&apos;ll Add their details and RSVP status.</DialogDescription>
           </DialogHeader>
           <form action={handleCreate} className="space-y-4">
             <div className="space-y-2">
@@ -590,7 +590,7 @@ function GuestRow({
             </div>
           </div>
         </TableCell>
-        <TableCell className="text-muted-foreground">{guest.category || "—"}</TableCell>
+        <TableCell className="text-muted-foreground">{guest.category || "Not set"}</TableCell>
         <TableCell>
           <select
             value={guest.rsvp_status}
@@ -615,7 +615,7 @@ function GuestRow({
               {guest.plus_one_name || "Plus one"}
             </span>
           ) : (
-            <span className="text-muted-foreground">—</span>
+            <span className="text-muted-foreground">No</span>
           )}
         </TableCell>
         <TableCell className="max-w-[200px]">
@@ -624,7 +624,7 @@ function GuestRow({
               {guest.dietary_restrictions}
             </Badge>
           ) : (
-            <span className="text-muted-foreground">—</span>
+            <span className="text-muted-foreground">No</span>
           )}
         </TableCell>
         <TableCell className="text-right">

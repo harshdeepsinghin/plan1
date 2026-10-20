@@ -3,7 +3,7 @@ import { ArrowLeft } from "lucide-react"
 import { NewEventForm } from "./new-event-client"
 
 export const metadata = {
-  title: "Create an event | EventPlanner",
+  title: "Create an event | plan1",
 }
 
 export default function NewEventPage() {
@@ -17,9 +17,9 @@ export default function NewEventPage() {
           <ArrowLeft className="h-4 w-4" />
           Back to dashboard
         </Link>
-        <h1 className="text-3xl font-bold tracking-tight">Plan something wonderful</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Create a new event</h1>
         <p className="mt-1 text-muted-foreground">
-          A few details is all Gemini needs to build your first draft plan.
+          Add the basics. Gemini will prepare a first draft you can edit.
         </p>
       </div>
       <NewEventForm />

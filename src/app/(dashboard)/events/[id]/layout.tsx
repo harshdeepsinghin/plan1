@@ -1,4 +1,4 @@
-import { getEvent } from "@/actions/event"
+import { getEvent } from "@/lib/data/events"
 import { EventSidebar } from "@/components/layout/sidebar"
 import { notFound } from "next/navigation"
 import type { Metadata } from "next"
@@ -13,7 +13,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const event = await getEvent(id)
 
   return {
-    title: event ? `${event.title} | EventPlanner` : "Event | EventPlanner",
+    title: event ? `${event.title} | plan1` : "Event | plan1",
   }
 }
 

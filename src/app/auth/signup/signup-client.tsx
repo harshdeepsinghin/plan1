@@ -69,7 +69,7 @@ export default function SignupForm() {
       return
     }
 
-    setNotice("Account created! Check your email to confirm your address, then sign in.")
+    setNotice("Account created. Check your email to confirm your address, then sign in.")
     setIsLoading(false)
   }
 
@@ -96,7 +96,7 @@ export default function SignupForm() {
       <CardHeader className="text-center">
         <CardTitle className="text-2xl">Create your free account</CardTitle>
         <CardDescription>
-          Plan weddings, birthdays, and community events with AI
+          Plan a wedding, birthday, or community event in one place.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

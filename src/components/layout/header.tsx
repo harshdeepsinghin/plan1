@@ -8,6 +8,7 @@ import { useState } from "react"
 import { cn } from "@/lib/utils"
 import { signOut } from "@/actions/auth"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
+import { BrandLogo } from "@/components/brand/logo"
 import { Button } from "@/components/ui/button"
 import {
   DropdownMenu,
@@ -50,12 +51,7 @@ export function DashboardHeader({ user }: { user: HeaderUser }) {
             {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </Button>
 
-          <Link href="/dashboard" className="flex items-center gap-2 font-bold text-lg">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-              🎉
-            </span>
-            <span className="hidden sm:block">EventPlanner</span>
-          </Link>
+          <BrandLogo href="/dashboard" wordmarkClassName="hidden sm:block" />
 
           <nav className="ml-4 hidden items-center gap-1 md:flex">
             <Link
@@ -121,7 +117,7 @@ export function DashboardHeader({ user }: { user: HeaderUser }) {
               <DropdownMenuItem asChild>
                 <Link href="/profile" className="flex cursor-pointer items-center gap-2">
                   <User className="h-4 w-4" />
-                  Profile & settings
+                  Profile & preferences
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>

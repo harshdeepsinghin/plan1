@@ -47,8 +47,10 @@ import {
   Lightbulb,
   ChevronDown,
   ChevronUp,
+  MapPin,
 } from "lucide-react"
-import { cn, formatCurrency, formatDate, getThemeColors, getThemeKeywords } from "@/lib/utils"
+import { cn, getThemeColors, getThemeKeywords } from "@/lib/utils"
+import { usePreferences } from "@/components/providers/preferences-provider"
 
 interface SavedIdea {
   id: string
@@ -77,8 +79,8 @@ interface ChatMessage {
 const GENERATORS = [
   {
     id: "theme",
-    title: "Signature theme",
-    description: "A creative concept, story, mood words, and decor direction.",
+    title: "Theme",
+    description: "A theme idea, colour palette, and decor direction.",
     icon: Sparkles,
     run: generateTheme,
   },
@@ -106,35 +108,35 @@ const GENERATORS = [
   {
     id: "budget",
     title: "Budget breakdown",
-    description: "Category-by-category allocation tailored to the budget.",
+    description: "How the budget could be split by category.",
     icon: DollarSign,
     run: generateBudgetBreakdown,
   },
   {
     id: "activities",
-    title: "Activities & moments",
-    description: "Entertainment ideas, rituals, and memorable guest moments.",
+    title: "Activities",
+    description: "Entertainment ideas, rituals, and things for guests to do.",
     icon: PartyPopper,
     run: generateActivityIdeas,
   },
   {
     id: "checklist",
-    title: "Master checklist",
-    description: "A comprehensive to-do list grouped by phase and priority.",
+    title: "Checklist",
+    description: "A to-do list grouped by phase and priority.",
     icon: ListChecks,
     run: generateChecklist,
   },
 ]
 
 const TYPE_LABELS: Record<string, string> = {
-  theme: "Signature theme",
+  theme: "Theme",
   color_palette: "Colour palette",
   palette: "Colour palette",
   vendor_suggestions: "Vendor shortlist",
   timeline: "Planning timeline",
   budget_breakdown: "Budget breakdown",
-  activities: "Activities & moments",
-  checklist: "Master checklist",
+  activities: "Activities",
+  checklist: "Checklist",
   speech: "Speech draft",
 }
 
@@ -148,7 +150,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([
     {
       role: "assistant",
-      content: `Hi! I'm your AI planning partner for “${event.title}”. Ask me anything about the venue, budget, guest experience, or the run of show.`,
+      content: `Hi. I can help with “${event.title}”. Ask about the venue, budget, guests, or run of show.`,
     },
   ])
   const [chatInput, setChatInput] = useState("")
@@ -187,15 +189,15 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
         },
         ...current,
       ])
-      toast({ title: `${generator.title} generated`, description: "Saved to your AI ideas." })
+      toast({ title: `${generator.title} generated`, description: "Saved in the ideas tab." })
       router.refresh()
     } catch (error) {
       toast({
-        title: "AI generation failed",
+        title: "Could not generate that",
         description:
           error instanceof Error
             ? error.message
-            : "The AI service is unavailable right now. Please try again.",
+            : "Gemini is not responding right now. Please try again.",
         variant: "destructive",
       })
     } finally {
@@ -222,8 +224,8 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
           role: "assistant",
           content:
             error instanceof Error
-              ? `Sorry — I hit an error: ${error.message}`
-              : "Sorry — I couldn't reach the AI service. Please try again.",
+              ? `Sorry, something went wrong: ${error.message}`
+              : "Sorry, I could not reach Gemini. Please try again.",
         },
       ])
     } finally {
@@ -286,10 +288,10 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold tracking-tight">
             <Bot className="h-6 w-6 text-primary" />
-            AI Assistant
+            Assistant
           </h1>
           <p className="text-sm text-muted-foreground">
-            Gemini-powered ideas for every part of {event.title}.
+            Ideas and answers for {event.title}.
           </p>
         </div>
         <Badge variant="secondary" className="w-fit gap-1">
@@ -302,7 +304,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
         <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
           <TabsTrigger value="studio">
             <Wand2 className="mr-1.5 h-4 w-4" />
-            Studio
+            Generate
           </TabsTrigger>
           <TabsTrigger value="chat">
             <MessageSquare className="mr-1.5 h-4 w-4" />
@@ -462,7 +464,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
                   Speech & toast writer
                 </CardTitle>
                 <CardDescription>
-                  A heartfelt draft you can personalise in seconds.
+                  Write a draft, then edit it in your own words.
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -538,7 +540,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
               <CardHeader>
                 <CardTitle className="text-base">Your draft</CardTitle>
                 <CardDescription>
-                  {speechResult ? "Copy, tweak, and make it yours." : "Your speech will appear here."}
+                  {speechResult ? "Copy it and edit until it sounds like you." : "Your draft will appear here."}
                 </CardDescription>
               </CardHeader>
               <CardContent>
@@ -590,7 +592,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
                 ) : (
                   <div className="flex h-48 flex-col items-center justify-center text-center text-sm text-muted-foreground">
                     <MessageSquare className="mb-2 h-8 w-8 opacity-40" />
-                    Fill in a few details and Gemini will draft it for you.
+                    Fill in a few details to get a first draft.
                   </div>
                 )}
               </CardContent>
@@ -622,7 +624,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
               <Sparkles className="h-5 w-5 text-primary" />
               {generated ? TYPE_LABELS[generated.type] || generated.type : "Generated"}
             </DialogTitle>
-            <DialogDescription>Freshly generated with Google Gemini.</DialogDescription>
+            <DialogDescription>Generated with Google Gemini.</DialogDescription>
           </DialogHeader>
           {generated ? (
             <div className="space-y-4">
@@ -642,6 +644,8 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
 }
 
 function GeneratedContent({ type, data }: { type: string; data: any }) {
+  const { formatCurrency } = usePreferences()
+
   if (!data) return null
 
   if (type === "theme") {
@@ -739,6 +743,53 @@ function GeneratedContent({ type, data }: { type: string; data: any }) {
     )
   }
 
+  if (type === "vendors" || type === "vendor_suggestions") {
+    const vendors = data.vendors || []
+    return (
+      <div className="space-y-3">
+        {vendors.map((vendor: any, index: number) => (
+          <div key={index} className="rounded-lg border p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-semibold">{vendor.category}</p>
+              {vendor.priority ? (
+                <Badge variant="secondary" className="capitalize">
+                  {vendor.priority} priority
+                </Badge>
+              ) : null}
+            </div>
+            {vendor.budget_percentage ? (
+              <p className="mt-1 text-xs text-muted-foreground">
+                About {vendor.budget_percentage}% of your budget
+              </p>
+            ) : null}
+            {Array.isArray(vendor.search_queries) && vendor.search_queries.length > 0 ? (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {vendor.search_queries.slice(0, 3).map((query: string) => (
+                  <a
+                    key={query}
+                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1 rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    <MapPin className="h-3 w-3 text-primary" />
+                    {query}
+                  </a>
+                ))}
+              </div>
+            ) : null}
+            {Array.isArray(vendor.tips) && vendor.tips.length > 0 ? (
+              <p className="mt-2 text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">Tip:</span> {vendor.tips[0]}
+              </p>
+            ) : null}
+          </div>
+        ))}
+        <RawJson data={data} />
+      </div>
+    )
+  }
+
   if (type === "budget") {
     const categories = data.categories || []
     const total = categories.reduce((sum: number, category: any) => sum + Number(category.amount || 0), 0)
@@ -774,7 +825,7 @@ function RawJson({ data }: { data: any }) {
         onClick={() => setOpen((value) => !value)}
         className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
       >
-        Full AI response
+        Full response
         {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
       </button>
       {open ? (
@@ -788,6 +839,7 @@ function RawJson({ data }: { data: any }) {
 
 function SavedIdeaCard({ idea }: { idea: SavedIdea }) {
   const [open, setOpen] = useState(false)
+  const { formatDate } = usePreferences()
 
   return (
     <Card>

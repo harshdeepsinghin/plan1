@@ -1,6 +1,8 @@
 'use server'
 
 import { createClient } from '@/lib/supabase/server'
+import { getCurrentProfile } from '@/lib/auth'
+import { resolvePreferences } from '@/lib/preferences'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createEventSchema, updateEventSchema } from '@/lib/validations/event'
@@ -18,6 +20,9 @@ export async function createEvent(formData: FormData) {
   } = await supabase.auth.getUser()
 
   if (!user) redirect('/auth/login')
+
+  const profile = await getCurrentProfile()
+  const preferences = resolvePreferences(profile)
 
   const rawData = Object.fromEntries(formData.entries())
   const validated = createEventSchema.parse(rawData)
@@ -38,11 +43,12 @@ export async function createEvent(formData: FormData) {
 
   if (error) throw new Error(error.message)
 
-  // Generate the first wave of AI planning data. Failures are non-fatal so a
-  // temporary AI outage never blocks event creation.
+  // Generate the first draft. Failures are non-fatal so a temporary Gemini
+  // outage never blocks event creation.
   await generateInitialAIData(event.id, {
     ...validated,
     venue: validated.venue ?? undefined,
+    currency: preferences.currency,
   })
 
   revalidatePath('/dashboard')
@@ -56,6 +62,7 @@ interface InitialEventData {
   venue?: string | null
   guest_count: number
   budget_total: number
+  currency: string
 }
 
 async function generateInitialAIData(eventId: string, eventData: InitialEventData) {
@@ -68,6 +75,7 @@ async function generateInitialAIData(eventId: string, eventData: InitialEventDat
     guest_count: eventData.guest_count,
     budget_total: eventData.budget_total,
     budget_spent: 0,
+    currency: eventData.currency,
   }
 
   try {
@@ -131,7 +139,7 @@ async function generateInitialAIData(eventId: string, eventData: InitialEventDat
       })
     }
   } catch (error) {
-    console.error('Initial AI generation failed:', error)
+    console.error('Initial draft generation failed:', error)
   }
 }
 
@@ -178,41 +186,4 @@ export async function deleteEvent(eventId: string) {
 
   revalidatePath('/dashboard')
   redirect('/dashboard')
-}
-
-export async function getEvents() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) return []
-
-  const { data, error } = await supabase
-    .from('events')
-    .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false })
-
-  if (error) throw new Error(error.message)
-  return data || []
-}
-
-export async function getEvent(eventId: string) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) return null
-
-  // Owners (and collaborators, through RLS) can read the event by id.
-  const { data, error } = await supabase
-    .from('events')
-    .select('*')
-    .eq('id', eventId)
-    .maybeSingle()
-
-  if (error || !data) return null
-  return data
 }

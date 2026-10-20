@@ -49,7 +49,8 @@ import {
   BookmarkCheck,
   Search,
 } from "lucide-react"
-import { cn, formatCurrency } from "@/lib/utils"
+import { cn } from "@/lib/utils"
+import { usePreferences } from "@/components/providers/preferences-provider"
 
 export interface Vendor {
   id: string
@@ -96,6 +97,7 @@ const CATEGORY_SUGGESTIONS = [
 
 export function VendorsClient({ eventId, initialVendors }: Props) {
   const router = useRouter()
+  const { formatCurrency, currency } = usePreferences()
   const { toast } = useToast()
   const [addOpen, setAddOpen] = useState(false)
   const [pending, setPending] = useState(false)
@@ -180,7 +182,7 @@ export function VendorsClient({ eventId, initialVendors }: Props) {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Vendors</h1>
           <p className="text-sm text-muted-foreground">
-            Track every supplier from first enquiry to booked. Drag cards between stages.
+            Track each vendor from first call to booked. Drag cards between stages.
           </p>
         </div>
         <Button onClick={() => setAddOpen(true)}>
@@ -304,11 +306,11 @@ export function VendorsClient({ eventId, initialVendors }: Props) {
                 <Input id="vendor-website" name="website" placeholder="https://…" />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="vendor-quote">Quote (USD)</Label>
+                <Label htmlFor="vendor-quote">Quote ({currency})</Label>
                 <Input id="vendor-quote" name="quote_amount" type="number" min={0} step={10} />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="vendor-rating">Rating (1–5)</Label>
+                <Label htmlFor="vendor-rating">Rating (1 to 5)</Label>
                 <Input id="vendor-rating" name="rating" type="number" min={1} max={5} />
               </div>
             </div>
@@ -418,6 +420,7 @@ function VendorCard({
   onStatusChange: (vendorId: string, status: string) => void
 }) {
   const router = useRouter()
+  const { formatCurrency, currency } = usePreferences()
   const { toast } = useToast()
   const [editOpen, setEditOpen] = useState(false)
   const [pending, setPending] = useState(false)
@@ -638,7 +641,7 @@ function VendorCard({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor={`quote-${vendor.id}`}>Quote (USD)</Label>
+                <Label htmlFor={`quote-${vendor.id}`}>Quote ({currency})</Label>
                 <Input
                   id={`quote-${vendor.id}`}
                   name="quote_amount"
@@ -649,7 +652,7 @@ function VendorCard({
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor={`rating-${vendor.id}`}>Rating (1–5)</Label>
+                <Label htmlFor={`rating-${vendor.id}`}>Rating (1 to 5)</Label>
                 <Input
                   id={`rating-${vendor.id}`}
                   name="rating"
@@ -686,6 +689,8 @@ function VendorCard({
 }
 
 function VendorCardPreview({ vendor }: { vendor: Vendor }) {
+  const { formatCurrency } = usePreferences()
+
   return (
     <div className="w-64 rotate-2 rounded-xl border bg-card p-3 shadow-2xl">
       <p className="text-sm font-semibold">{vendor.name}</p>

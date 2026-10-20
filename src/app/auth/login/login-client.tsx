@@ -92,7 +92,7 @@ export default function LoginForm({ initialRedirect, initialError }: Props) {
     })
 
     if (error) setError(error.message)
-    else setNotice("Magic link sent — check your inbox.")
+    else setNotice("Sign-in link sent. Check your inbox.")
     setIsLoading(false)
   }
 
@@ -100,7 +100,7 @@ export default function LoginForm({ initialRedirect, initialError }: Props) {
     <Card className="w-full max-w-md shadow-xl">
       <CardHeader className="text-center">
         <CardTitle className="text-2xl">Welcome back</CardTitle>
-        <CardDescription>Sign in to continue planning your celebration</CardDescription>
+        <CardDescription>Sign in to open your plans</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {error && (
@@ -183,7 +183,7 @@ export default function LoginForm({ initialRedirect, initialError }: Props) {
           disabled={isLoading}
         >
           <Mail className="mr-2 h-4 w-4" />
-          Email me a magic link
+          Email me a sign-in link
         </Button>
       </CardContent>
     </Card>

@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { getEvent } from "@/actions/event"
+import { getEvent } from "@/lib/data/events"
 import { GuestsClient } from "./guests-client"
 
 interface Props {

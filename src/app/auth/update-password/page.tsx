@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import Link from "next/link"
 import { createBrowserClient } from "@supabase/ssr"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,6 +14,7 @@ import {
   CardTitle,
 } from "@/components/ui/card"
 import { Alert, AlertDescription } from "@/components/ui/alert"
+import { BrandLogo } from "@/components/brand/logo"
 import { Loader2, KeyRound } from "lucide-react"
 
 export default function UpdatePasswordPage() {
@@ -49,7 +49,7 @@ export default function UpdatePasswordPage() {
       return
     }
 
-    setNotice("Password updated. Redirecting to your dashboard…")
+    setNotice("Password updated. Taking you to your dashboard.")
     setTimeout(() => {
       router.push("/dashboard")
       router.refresh()
@@ -59,16 +59,16 @@ export default function UpdatePasswordPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-background">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col items-center justify-center px-4 py-10">
-        <Link href="/" className="mb-8 flex items-center gap-2 text-2xl font-bold">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            🎉
-          </span>
-          EventPlanner
-        </Link>
+        <BrandLogo
+          href="/"
+          className="mb-8"
+          markClassName="h-11 w-11 rounded-2xl"
+          wordmarkClassName="text-2xl"
+        />
         <Card className="w-full max-w-md shadow-xl">
           <CardHeader className="text-center">
             <CardTitle className="text-2xl">Choose a new password</CardTitle>
-            <CardDescription>Make it something memorable and secure</CardDescription>
+            <CardDescription>Use at least 6 characters.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {error && (

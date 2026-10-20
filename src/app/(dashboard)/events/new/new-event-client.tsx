@@ -15,6 +15,7 @@ import {
   SelectValue,
 } from "@/components/ui/select"
 import { Loader2, Sparkles, Wand2 } from "lucide-react"
+import { usePreferences } from "@/components/providers/preferences-provider"
 
 function SubmitButton() {
   const { pending } = useFormStatus()
@@ -24,12 +25,12 @@ function SubmitButton() {
       {pending ? (
         <>
           <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-          Gemini is designing your event…
+          Creating your event...
         </>
       ) : (
         <>
           <Wand2 className="mr-2 h-5 w-5" />
-          Create event with AI
+          Create event
         </>
       )}
     </Button>
@@ -38,14 +39,15 @@ function SubmitButton() {
 
 export function NewEventForm() {
   const today = new Date().toISOString().split("T")[0]
+  const { currency, defaultEventType } = usePreferences()
 
   return (
     <form action={createEvent} className="space-y-6">
       <Card>
         <CardHeader>
-          <CardTitle>The essentials</CardTitle>
+          <CardTitle>Event details</CardTitle>
           <CardDescription>
-            Tell us what you&apos;re celebrating. The more detail, the better the AI plan.
+            A few details to get started. You can edit everything later.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 sm:grid-cols-2">
@@ -62,7 +64,7 @@ export function NewEventForm() {
 
           <div className="space-y-2">
             <Label htmlFor="event_type">Occasion *</Label>
-            <Select name="event_type" defaultValue="wedding" required>
+            <Select name="event_type" defaultValue={defaultEventType} required>
               <SelectTrigger id="event_type">
                 <SelectValue placeholder="Choose an occasion" />
               </SelectTrigger>
@@ -89,7 +91,7 @@ export function NewEventForm() {
               maxLength={200}
             />
             <p className="text-xs text-muted-foreground">
-              Not sure yet? Leave it blank — AI can suggest a style that fits any venue.
+              Not sure yet? Leave it blank. You can add it later.
             </p>
           </div>
 
@@ -105,7 +107,7 @@ export function NewEventForm() {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="budget_total">Total budget (USD)</Label>
+            <Label htmlFor="budget_total">Total budget ({currency})</Label>
             <Input
               id="budget_total"
               name="budget_total"
@@ -121,7 +123,7 @@ export function NewEventForm() {
             <Textarea
               id="notes"
               name="notes"
-              placeholder="Cultural traditions, must-have details, colour preferences…"
+              placeholder="Cultural traditions, must-haves, colour ideas"
               rows={3}
               maxLength={500}
             />
@@ -133,9 +135,9 @@ export function NewEventForm() {
         <CardContent className="flex items-start gap-3 p-4 text-sm">
           <Sparkles className="mt-0.5 h-5 w-5 shrink-0 text-primary" />
           <p className="text-muted-foreground">
-            On creation, <strong className="text-foreground">Google Gemini</strong> generates a
-            custom theme, a category-by-category budget, and a countdown timeline. This can take
-            5–15 seconds — we&apos;ll jump you straight into your planner when it&apos;s ready.
+            After you create the event, <strong className="text-foreground">Google Gemini</strong> will
+            draft a theme, a budget split, and a timeline. This can take up to a minute. We&apos;ll
+            take you to the planner when it&apos;s ready.
           </p>
         </CardContent>
       </Card>

@@ -14,7 +14,9 @@ import {
   ArrowLeft,
   MapPin,
 } from "lucide-react"
-import { cn, formatDate, getEventTypeLabel, getDaysUntil } from "@/lib/utils"
+import { cn, getEventTypeLabel, getDaysUntil } from "@/lib/utils"
+import { usePreferences } from "@/components/providers/preferences-provider"
+import { IntentLink } from "@/components/navigation/intent-link"
 import { Badge } from "@/components/ui/badge"
 
 const navigation = [
@@ -24,12 +26,13 @@ const navigation = [
   { name: "Vendors", segment: "vendors", icon: Truck },
   { name: "Guests", segment: "guests", icon: Users },
   { name: "Tasks", segment: "tasks", icon: ClipboardList },
-  { name: "AI Assistant", segment: "ai-assistant", icon: Bot },
+  { name: "Assistant", segment: "ai-assistant", icon: Bot },
   { name: "Settings", segment: "settings", icon: Settings },
 ]
 
 export function EventSidebar({ event }: { event: any }) {
   const pathname = usePathname()
+  const { formatDate } = usePreferences()
   const base = `/events/${event.id}`
   const daysLeft = getDaysUntil(event.event_date)
 
@@ -78,7 +81,7 @@ export function EventSidebar({ event }: { event: any }) {
               const Icon = item.icon
 
               return (
-                <Link
+                <IntentLink
                   key={item.segment}
                   href={href}
                   className={cn(
@@ -90,7 +93,7 @@ export function EventSidebar({ event }: { event: any }) {
                 >
                   <Icon className="h-4 w-4" />
                   {item.name}
-                </Link>
+                </IntentLink>
               )
             })}
           </nav>
@@ -105,7 +108,7 @@ export function EventSidebar({ event }: { event: any }) {
           const Icon = item.icon
 
           return (
-            <Link
+            <IntentLink
               key={item.segment}
               href={href}
               className={cn(
@@ -117,7 +120,7 @@ export function EventSidebar({ event }: { event: any }) {
             >
               <Icon className="h-3.5 w-3.5" />
               {item.name}
-            </Link>
+            </IntentLink>
           )
         })}
       </nav>

@@ -1,96 +1,127 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
-import { 
-  Calendar, DollarSign, Users, Truck, Bot, Sparkles, 
-  CheckCircle, ArrowRight, Star, Palette, ClipboardList 
+import { BrandLogo } from "@/components/brand/logo"
+import {
+  Calendar,
+  DollarSign,
+  Users,
+  Truck,
+  Bot,
+  Sparkles,
+  Palette,
+  ClipboardList,
+  ArrowRight,
 } from "lucide-react"
 
 const features = [
   {
     icon: Sparkles,
-    title: "AI Theme Generator",
-    description: "Get personalized themes, color palettes, and decor styles tailored to your event type, budget, and preferences."
+    title: "Theme ideas",
+    description:
+      "Gemini suggests a theme, colour palette, and decor direction. Change anything you do not like.",
   },
   {
     icon: DollarSign,
-    title: "Smart Budget Tracker",
-    description: "Auto-generated budget breakdowns with category allocations, live spend tracking, and remaining-budget progress."
+    title: "Budget",
+    description:
+      "Set an amount for each category, add expenses, and see what is left.",
   },
   {
     icon: Calendar,
-    title: "Intelligent Timeline",
-    description: "Week-by-week milestones generated from your event date with priorities, categories, and drag-and-drop reordering."
+    title: "Timeline",
+    description:
+      "Milestones from today to the event date, with due dates and priorities.",
   },
   {
     icon: Truck,
-    title: "Vendor Management",
-    description: "Kanban-style vendor pipeline from research to booked, with quotes, ratings, contacts, and status tracking."
+    title: "Vendors",
+    description:
+      "Track vendors from the first call to booked. Keep quotes, contacts, and notes together.",
   },
   {
     icon: Users,
-    title: "Guest List & RSVP",
-    description: "Import guests via CSV, track RSVPs, dietary restrictions, and plus-ones, then export your final list."
+    title: "Guest list",
+    description:
+      "Import a CSV, track RSVPs and plus-ones, then export the list when it is final.",
   },
   {
     icon: ClipboardList,
-    title: "Task Kanban Board",
-    description: "Drag-and-drop task management with assignees, due dates, priorities, and milestone linking."
+    title: "Tasks",
+    description:
+      "A board for what is left to do, with due dates, priorities, and assignees.",
   },
   {
     icon: Bot,
-    title: "AI Chat Assistant",
-    description: "Context-aware chat that knows your event details and helps with planning decisions in real-time."
+    title: "Assistant",
+    description:
+      "Ask about the venue, budget, guests, or run of show. It knows the event details.",
   },
   {
     icon: Palette,
-    title: "Speech & Toast Writer",
-    description: "Generate personalized speeches for any role (best man, father of bride, etc.) with multiple draft variations."
+    title: "Speeches",
+    description:
+      "Draft a speech by role and tone, then edit it until it sounds like you.",
   },
 ]
 
 const stats = [
-  { value: "8", label: "AI Generators" },
-  { value: "100%", label: "Free Tier" },
-  { value: "∞", label: "Events" },
-  { value: "2", label: "Collaborator Roles" },
+  { value: "8", label: "planning tools" },
+  { value: "Free", label: "to use" },
+  { value: "No limit", label: "events" },
+  { value: "2", label: "collaborator roles" },
 ]
 
 export default function LandingPage() {
   return (
     <div className="min-h-screen bg-background">
-      {/* Hero Section */}
+      <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
+        <div className="container mx-auto flex h-16 items-center justify-between px-4">
+          <BrandLogo href="/" />
+          <nav className="flex items-center gap-1.5">
+            <Link href="/auth/login">
+              <Button variant="ghost" size="sm">
+                Sign in
+              </Button>
+            </Link>
+            <Link href="/auth/signup">
+              <Button size="sm">Create account</Button>
+            </Link>
+          </nav>
+        </div>
+      </header>
+
       <section className="relative overflow-hidden py-20 lg:py-32">
         <div className="container mx-auto px-4">
-          <div className="max-w-4xl mx-auto text-center">
-            <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-primary/10 text-primary text-sm font-medium mb-6">
-              <Star className="h-4 w-4" />
-              GenAI-Powered Event Planning
+          <div className="mx-auto max-w-4xl text-center">
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full bg-primary/10 px-4 py-2 text-sm font-medium text-primary">
+              <Sparkles className="h-4 w-4" />
+              Planning with Google Gemini
             </div>
-            <h1 className="text-4xl lg:text-6xl font-bold tracking-tight mb-6">
-              Plan Perfect Events with <span className="text-primary">AI</span>
+            <h1 className="mb-6 text-4xl font-bold tracking-tight lg:text-6xl">
+              One plan for the whole event.
             </h1>
-            <p className="text-lg lg:text-xl text-muted-foreground mb-8 max-w-2xl mx-auto">
-              From weddings to birthdays to community events — get personalized themes, smart budgets, 
-              intelligent timelines, and vendor management all powered by Google Gemini AI.
+            <p className="mx-auto mb-8 max-w-2xl text-lg text-muted-foreground lg:text-xl">
+              Keep the theme, budget, guests, vendors, and timeline together. Gemini
+              writes a first draft you can change.
             </p>
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12">
+            <div className="mb-12 flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link href="/auth/signup">
-                <Button size="lg" className="w-full sm:w-auto gap-2">
-                  <Sparkles className="h-5 w-5" />
-                  Start Free — No Credit Card
+                <Button size="lg" className="w-full gap-2 sm:w-auto">
+                  Create an account
+                  <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
               <Link href="/auth/login">
                 <Button variant="outline" size="lg" className="w-full sm:w-auto">
-                  Sign In
+                  Sign in
                 </Button>
               </Link>
             </div>
-            <div className="flex items-center justify-center gap-8 text-sm text-muted-foreground">
-              {stats.map((stat, i) => (
-                <div key={i} className="flex flex-col items-center">
+            <div className="grid grid-cols-2 gap-6 text-sm text-muted-foreground sm:grid-cols-4">
+              {stats.map((stat) => (
+                <div key={stat.label} className="flex flex-col items-center">
                   <div className="text-2xl font-bold text-foreground">{stat.value}</div>
                   <div>{stat.label}</div>
                 </div>
@@ -100,20 +131,19 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Features Section */}
-      <section className="py-20 bg-muted/50">
+      <section className="bg-muted/50 py-20">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl lg:text-4xl font-bold mb-4">Everything You Need to Plan</h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">
-              Eight powerful AI generators plus full event management tools — all free on generous tiers.
+          <div className="mb-16 text-center">
+            <h2 className="mb-4 text-3xl font-bold lg:text-4xl">What you can do</h2>
+            <p className="mx-auto max-w-2xl text-muted-foreground">
+              Eight tools for the parts of an event that need the most attention.
             </p>
           </div>
           <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-            {features.map((feature, i) => (
-              <Card key={i} className="h-full hover:shadow-lg transition-shadow">
+            {features.map((feature) => (
+              <Card key={feature.title} className="h-full transition-shadow hover:shadow-lg">
                 <CardHeader>
-                  <div className="p-3 rounded-xl bg-primary/10 text-primary w-fit mb-4">
+                  <div className="mb-4 w-fit rounded-xl bg-primary/10 p-3 text-primary">
                     <feature.icon className="h-6 w-6" />
                   </div>
                   <CardTitle>{feature.title}</CardTitle>
@@ -127,28 +157,43 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* How It Works */}
       <section className="py-20">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl lg:text-4xl font-bold mb-4">How It Works</h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">
-              From idea to execution in four simple steps
+          <div className="mb-16 text-center">
+            <h2 className="mb-4 text-3xl font-bold lg:text-4xl">How it works</h2>
+            <p className="mx-auto max-w-2xl text-muted-foreground">
+              From a blank event to a plan you can follow.
             </p>
           </div>
           <div className="grid gap-8 md:grid-cols-4">
             {[
-              { step: "01", title: "Create Event", desc: "Enter event type, date, budget, and guest count. AI instantly generates a personalized theme, timeline, and budget breakdown." },
-              { step: "02", title: "Customize with AI", desc: "Use 8 specialized AI generators for themes, colors, vendors, activities, checklists, speeches, and more." },
-              { step: "03", title: "Manage & Collaborate", desc: "Track budget, vendors, guests, and tasks. Invite co-planners with editor or viewer roles." },
-              { step: "04", title: "Execute & Celebrate", desc: "Export guest, budget, and timeline CSVs, add the date to Google Calendar, and get venue directions in Google Maps." },
-            ].map((item, i) => (
-              <div key={i} className="relative">
-                <div className="absolute left-1/2 -translate-x-1/2 top-0 w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
+              {
+                step: "01",
+                title: "Create the event",
+                desc: "Add the date, venue, guest count, and budget.",
+              },
+              {
+                step: "02",
+                title: "Get a first draft",
+                desc: "Gemini suggests a theme, budget split, and timeline. Keep what works.",
+              },
+              {
+                step: "03",
+                title: "Work through the details",
+                desc: "Track vendors, guests, tasks, and payments as the date gets closer.",
+              },
+              {
+                step: "04",
+                title: "Share or export",
+                desc: "Invite a co-planner, add the date to Google Calendar, or export your lists.",
+              },
+            ].map((item) => (
+              <div key={item.step} className="relative">
+                <div className="absolute left-1/2 top-0 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full bg-primary/10 text-lg font-bold text-primary">
                   {item.step}
                 </div>
                 <div className="pt-16 text-center">
-                  <h3 className="text-xl font-semibold mb-2">{item.title}</h3>
+                  <h3 className="mb-2 text-xl font-semibold">{item.title}</h3>
                   <p className="text-muted-foreground">{item.desc}</p>
                 </div>
               </div>
@@ -157,25 +202,39 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Tech Stack */}
-      <section className="py-20 bg-muted/50">
+      <section className="bg-muted/50 py-20">
         <div className="container mx-auto px-4">
-          <div className="text-center mb-16">
-            <h2 className="text-3xl lg:text-4xl font-bold mb-4">Built with Best-in-Class Free Tiers</h2>
-            <p className="text-muted-foreground max-w-2xl mx-auto">
-              Every service we use has a generous free tier — no surprise bills, ever.
+          <div className="mb-16 text-center">
+            <h2 className="mb-4 text-3xl font-bold lg:text-4xl">What it runs on</h2>
+            <p className="mx-auto max-w-2xl text-muted-foreground">
+              The project uses free plans from Vercel, Supabase, and Google.
             </p>
           </div>
           <div className="grid gap-6 md:grid-cols-3">
             {[
-              { name: "Next.js + Vercel", desc: "Frontend & hosting", free: "Unlimited personal projects, 100GB bandwidth" },
-              { name: "Supabase (PostgreSQL)", desc: "Database & Auth", free: "500MB DB, unlimited users, OAuth, RLS" },
-              { name: "Google Gemini API", desc: "Generative AI", free: "Gemini 3.6 Flash · free AI Studio tier" },
-            ].map((tech, i) => (
-              <Card key={i} className="text-center p-6">
-                <h3 className="text-xl font-semibold mb-2">{tech.name}</h3>
-                <p className="text-muted-foreground mb-2">{tech.desc}</p>
-                <Badge variant="secondary" className="text-green-600 bg-green-100 border-green-200">
+              {
+                name: "Next.js on Vercel",
+                desc: "Frontend and hosting",
+                free: "Hobby plan",
+              },
+              {
+                name: "Supabase",
+                desc: "Postgres, auth, and access rules",
+                free: "Free plan",
+              },
+              {
+                name: "Google Gemini",
+                desc: "Drafts and chat",
+                free: "Free API tier",
+              },
+            ].map((tech) => (
+              <Card key={tech.name} className="p-6 text-center">
+                <h3 className="mb-2 text-xl font-semibold">{tech.name}</h3>
+                <p className="mb-2 text-muted-foreground">{tech.desc}</p>
+                <Badge
+                  variant="secondary"
+                  className="border-green-200 bg-green-100 text-green-700"
+                >
                   {tech.free}
                 </Badge>
               </Card>
@@ -184,20 +243,21 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* CTA */}
       <section className="py-20">
         <div className="container mx-auto px-4 text-center">
-          <Card className="bg-primary text-primary-foreground max-w-2xl mx-auto">
+          <Card className="mx-auto max-w-2xl bg-primary text-primary-foreground">
             <CardContent className="p-8 lg:p-12">
-              <h2 className="text-3xl lg:text-4xl font-bold mb-4">Ready to Plan Your Perfect Event?</h2>
-              <p className="text-lg opacity-90 mb-8">
-                Turn your next wedding, birthday, or community gathering into a plan you can
-                actually follow — powered by Gemini and free to try.
+              <h2 className="mb-4 text-3xl font-bold lg:text-4xl">Start with one event</h2>
+              <p className="mb-8 text-lg opacity-90">
+                Create an account, add the basics, and edit the draft Gemini gives you.
               </p>
               <Link href="/auth/signup">
-                <Button size="lg" className="bg-primary-foreground text-primary hover:bg-primary-foreground/90 gap-2">
-                  <Sparkles className="h-5 w-5" />
-                  Create Your First Event Free
+                <Button
+                  size="lg"
+                  className="gap-2 bg-primary-foreground text-primary hover:bg-primary-foreground/90"
+                >
+                  Create an account
+                  <ArrowRight className="h-4 w-4" />
                 </Button>
               </Link>
             </CardContent>
@@ -205,11 +265,13 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* Footer */}
-      <footer className="py-12 border-t bg-muted/50">
-        <div className="container mx-auto px-4 text-center text-muted-foreground">
-          <p>Built for Hack2Skill Challenge 5 — Celebration & Event Planner</p>
-          <p className="mt-2 text-sm">Powered by Next.js, Supabase, and Google Gemini AI</p>
+      <footer className="border-t bg-muted/50 py-12">
+        <div className="container mx-auto flex flex-col items-center px-4 text-center text-muted-foreground">
+          <BrandLogo href="/" className="mb-4" />
+          <p className="font-medium text-foreground">Plan events without the spreadsheet mess.</p>
+          <p className="mt-2 text-sm">
+            Built for Hack2Skill Challenge 5. Runs on Next.js, Supabase, and Google Gemini.
+          </p>
         </div>
       </footer>
     </div>

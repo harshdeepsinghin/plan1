@@ -11,7 +11,12 @@ export type CollaboratorRole = 'owner' | 'editor' | 'viewer'
 export interface Profile {
   id: string
   full_name: string | null
+  email?: string | null
   avatar_url: string | null
+  currency?: string | null
+  timezone?: string | null
+  date_format?: string | null
+  default_event_type?: string | null
   created_at: string
   updated_at: string
 }

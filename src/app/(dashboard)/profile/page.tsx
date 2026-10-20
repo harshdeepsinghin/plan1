@@ -1,32 +1,58 @@
 import { redirect } from "next/navigation"
 import Link from "next/link"
 import { createClient } from "@/lib/supabase/server"
+import { getCurrentProfile, getCurrentUser } from "@/lib/auth"
 import { updateProfile } from "@/actions/auth"
+import {
+  CURRENCIES,
+  DATE_FORMATS,
+  DEFAULT_EVENT_TYPES,
+  TIMEZONES,
+  createFormatters,
+  resolvePreferences,
+} from "@/lib/preferences"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { Separator } from "@/components/ui/separator"
-import { ArrowLeft, Mail, CalendarDays, PartyPopper, Save, User } from "lucide-react"
-import { formatDate } from "@/lib/utils"
+import { PreferencesForm } from "./preferences-form"
+import {
+  ArrowLeft,
+  Mail,
+  CalendarDays,
+  PartyPopper,
+  Save,
+  User,
+  Settings2,
+  Coins,
+  Globe2,
+  CalendarRange,
+  Sparkles,
+} from "lucide-react"
+
+const selectClassName =
+  "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
 
 export const metadata = {
-  title: "Profile | EventPlanner",
+  title: "Profile & preferences | plan1",
 }
 
 export default async function ProfilePage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   if (!user) redirect("/auth/login")
 
-  const [{ data: profile }, { count: eventCount }] = await Promise.all([
-    supabase.from("profiles").select("*").eq("id", user.id).maybeSingle(),
-    supabase.from("events").select("*", { count: "exact", head: true }).eq("user_id", user.id),
-  ])
+  const profile = await getCurrentProfile()
+  const preferences = resolvePreferences(profile)
+  const { formatDate } = createFormatters(preferences)
+
+  const supabase = await createClient()
+  const { count: eventCount } = await supabase
+    .from("events")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id)
 
   const fullName = profile?.full_name || user.user_metadata?.full_name || ""
   const avatarUrl = profile?.avatar_url || user.user_metadata?.avatar_url || ""
@@ -47,9 +73,9 @@ export default async function ProfilePage() {
           <ArrowLeft className="h-4 w-4" />
           Back to dashboard
         </Link>
-        <h1 className="text-2xl font-bold tracking-tight">Profile & account</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Profile & preferences</h1>
         <p className="text-sm text-muted-foreground">
-          Manage how you appear across your event plans.
+          Manage how you appear and how your plans are displayed.
         </p>
       </div>
 
@@ -85,6 +111,121 @@ export default async function ProfilePage() {
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
+            <Settings2 className="h-5 w-5 text-primary" />
+            Planning preferences
+          </CardTitle>
+          <CardDescription>
+            Set the defaults used across your plans and exports.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <PreferencesForm>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="currency" className="flex items-center gap-1.5">
+                  <Coins className="h-3.5 w-3.5 text-muted-foreground" />
+                  Currency
+                </Label>
+                <select
+                  key={preferences.currency}
+                  id="currency"
+                  name="currency"
+                  defaultValue={preferences.currency}
+                  className={selectClassName}
+                >
+                  {CURRENCIES.map((currency) => (
+                    <option key={currency.code} value={currency.code}>
+                      {currency.code} ({currency.label}, {currency.symbol})
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Used for budgets and cost estimates.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="timezone" className="flex items-center gap-1.5">
+                  <Globe2 className="h-3.5 w-3.5 text-muted-foreground" />
+                  Timezone
+                </Label>
+                <select
+                  key={preferences.timezone}
+                  id="timezone"
+                  name="timezone"
+                  defaultValue={preferences.timezone}
+                  className={selectClassName}
+                >
+                  {TIMEZONES.map((timezone) => (
+                    <option key={timezone.value} value={timezone.value}>
+                      {timezone.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Used for timestamps and account dates.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="date_format" className="flex items-center gap-1.5">
+                  <CalendarRange className="h-3.5 w-3.5 text-muted-foreground" />
+                  Date format
+                </Label>
+                <select
+                  key={preferences.dateFormat}
+                  id="date_format"
+                  name="date_format"
+                  defaultValue={preferences.dateFormat}
+                  className={selectClassName}
+                >
+                  {DATE_FORMATS.map((format) => (
+                    <option key={format.value} value={format.value}>
+                      {format.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Used for event dates, milestones, tasks, and exports.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="default_event_type" className="flex items-center gap-1.5">
+                  <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+                  Default occasion
+                </Label>
+                <select
+                  key={preferences.defaultEventType}
+                  id="default_event_type"
+                  name="default_event_type"
+                  defaultValue={preferences.defaultEventType}
+                  className={selectClassName}
+                >
+                  {DEFAULT_EVENT_TYPES.map((type) => (
+                    <option key={type.value} value={type.value}>
+                      {type.label}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-muted-foreground">
+                  Pre-selected when you create a new event.
+                </p>
+              </div>
+            </div>
+
+            <div className="rounded-lg border bg-muted/40 p-3 text-xs text-muted-foreground">
+              Changing the currency changes labels only. It does not convert amounts you have
+              already entered.
+            </div>
+
+          </PreferencesForm>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
             <User className="h-5 w-5 text-primary" />
             Personal details
           </CardTitle>
@@ -114,7 +255,7 @@ export default async function ProfilePage() {
               <Label>Email address</Label>
               <Input value={user.email || ""} disabled />
               <p className="text-xs text-muted-foreground">
-                Your email is managed by your sign-in provider (Google or Supabase Auth).
+                Your email comes from your sign-in provider.
               </p>
             </div>
             <Button type="submit">

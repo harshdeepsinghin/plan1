@@ -48,7 +48,8 @@ import {
   CalendarDays,
   User,
 } from "lucide-react"
-import { cn, formatDate, getDaysUntil, getPriorityColor, getPriorityLabel } from "@/lib/utils"
+import { cn, getDaysUntil, getPriorityColor, getPriorityLabel } from "@/lib/utils"
+import { usePreferences } from "@/components/providers/preferences-provider"
 
 export interface Task {
   id: string
@@ -233,7 +234,7 @@ export function TasksClient({ eventId, initialTasks, members }: Props) {
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add a task</DialogTitle>
-            <DialogDescription>Assign it, set a due date, and keep moving.</DialogDescription>
+            <DialogDescription>Add a due date, priority, and assignee.</DialogDescription>
           </DialogHeader>
           <form action={handleCreate} className="space-y-4">
             <div className="space-y-2">
@@ -419,6 +420,7 @@ function TaskCard({
 }) {
   const router = useRouter()
   const { toast } = useToast()
+  const { formatDate } = usePreferences()
   const [editOpen, setEditOpen] = useState(false)
   const [pending, setPending] = useState(false)
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({

@@ -1,5 +1,10 @@
 import { EventType, AiTheme, ColorPalette } from '@/types/database'
 
+function money(context: EventContext, amount: number): string {
+  const currency = context.currency || 'USD'
+  return `${currency} ${Number(amount || 0).toLocaleString()}`
+}
+
 interface EventContext {
   event_type: EventType | string
   title: string
@@ -8,13 +13,14 @@ interface EventContext {
   guest_count: number
   budget_total: number
   budget_spent: number
+  currency?: string
   preferences?: string
   cultural_background?: string
   location?: string
 }
 
 export function buildThemePrompt(context: EventContext): string {
-  return `You are an expert event planner and creative director. Generate a unique, personalized theme for a ${context.event_type}.
+  return `You are an expert event planner and creative director. Suggest a theme for a ${context.event_type}.
 
 Event Details:
 - Title: "${context.title}"
@@ -22,16 +28,16 @@ Event Details:
 - Date: ${context.event_date}
 - Venue: ${context.venue || 'Not selected yet'}
 - Guest Count: ${context.guest_count}
-- Budget: $${context.budget_total.toLocaleString()}
+- Budget: ${money(context, context.budget_total)}
 - Location: ${context.location || 'Not specified'}
 - Cultural Background: ${context.cultural_background || 'Not specified'}
 - Preferences: ${context.preferences || 'None specified'}
 
 Generate a cohesive theme that includes:
 1. A creative theme name
-2. A compelling description (2-3 sentences)
+2. A short description (2 to 3 sentences)
 3. A 5-color palette with hex codes and usage notes
-4. 5-7 mood board keywords for visual inspiration
+4. 5 to 7 mood keywords
 5. A decor style description
 
 Output ONLY valid JSON in this exact format:
@@ -55,7 +61,7 @@ export function buildColorPalettePrompt(context: EventContext, existingTheme?: A
     ? `Existing theme: "${existingTheme.theme_name}" - ${existingTheme.description}`
     : 'No existing theme - create from scratch'
 
-  return `You are a professional color consultant for events. Create a stunning 5-color palette for a ${context.event_type}.
+  return `You are a professional color consultant for events. Create a 5-color palette for a ${context.event_type}.
 
 ${themeInfo}
 
@@ -66,7 +72,7 @@ Event Details:
 - Guest Count: ${context.guest_count}
 - Cultural Background: ${context.cultural_background || 'Not specified'}
 
-Generate a sophisticated color palette with:
+Choose five colors:
 1. Primary - Main dominant color
 2. Secondary - Complementary supporting color
 3. Accent - Pop color for highlights/details
@@ -95,7 +101,7 @@ Event Details:
 - Date: ${context.event_date}
 - Venue: ${context.venue || 'Not selected'}
 - Guest Count: ${context.guest_count}
-- Budget: $${context.budget_total.toLocaleString()}
+- Budget: ${money(context, context.budget_total)}
 - Location: ${context.location || 'Not specified'}
 
 Provide 8-10 vendor categories with specific guidance for each. Focus on categories relevant to this event type and budget.
@@ -119,13 +125,13 @@ Output ONLY valid JSON:
 export function buildTimelinePrompt(context: EventContext): string {
   const monthsUntil = Math.ceil((new Date(context.event_date).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 30))
   
-  return `You are an expert event planner creating a comprehensive timeline. Generate a week-by-week milestone plan for a ${context.event_type} in ${monthsUntil} months.
+  return `You are an expert event planner creating a timeline. Generate a week-by-week milestone plan for a ${context.event_type} in ${monthsUntil} months.
 
 Event Details:
 - Type: ${context.event_type}
 - Date: ${context.event_date}
 - Guest Count: ${context.guest_count}
-- Budget: $${context.budget_total.toLocaleString()}
+- Budget: ${money(context, context.budget_total)}
 - Venue: ${context.venue || 'Not booked yet'}
 
 Create milestones organized by category (booking, payments, design, logistics, other) with priorities (1=high, 2=medium, 3=low). Include specific, actionable tasks with realistic deadlines working backwards from the event date.
@@ -150,10 +156,11 @@ export function buildBudgetBreakdownPrompt(context: EventContext): string {
 
 Event Details:
 - Type: ${context.event_type}
-- Total Budget: $${context.budget_total.toLocaleString()}
+- Total Budget: ${money(context, context.budget_total)}
 - Guest Count: ${context.guest_count}
 - Location: ${context.location || 'Not specified'}
 - Date: ${context.event_date}
+- Currency: ${context.currency || 'USD'}
 
 Provide realistic percentage allocations for each category based on industry standards for this event type. Include cost-saving tips for each category.
 
@@ -174,17 +181,18 @@ Output ONLY valid JSON:
 }
 
 export function buildActivityIdeasPrompt(context: EventContext): string {
-  return `You are a creative event designer. Generate unique, memorable activity ideas for a ${context.event_type}.
+  return `You are a creative event designer. Suggest activity ideas for a ${context.event_type}.
 
 Event Details:
 - Type: ${context.event_type}
 - Guest Count: ${context.guest_count}
 - Venue: ${context.venue || 'Not specified'}
 - Date: ${context.event_date}
+- Currency: ${context.currency || 'USD'}
 - Cultural Background: ${context.cultural_background || 'Not specified'}
 - Demographics: Mixed ages (assume unless specified)
 
-Create 8-12 unique activities tailored to this event type. Include both traditional and innovative ideas.
+Suggest 8 to 12 activities for this event type. Include both traditional and innovative ideas.
 
 Output ONLY valid JSON:
 {
@@ -204,7 +212,7 @@ Output ONLY valid JSON:
 }
 
 export function buildChecklistPrompt(context: EventContext): string {
-  return `You are an expert event planner creating a comprehensive checklist. Generate a categorized checklist for a ${context.event_type}.
+  return `You are an expert event planner creating a checklist. Generate a categorized checklist for a ${context.event_type}.
 
 Event Details:
 - Type: ${context.event_type}
@@ -262,7 +270,7 @@ Output ONLY valid JSON:
 export function buildChatPrompt(context: EventContext, userMessage: string, history: Array<{role: string, content: string}>): string {
   const historyText = history.map(h => `${h.role}: ${h.content}`).join('\n')
   
-  return `You are an expert event planning AI assistant. Help the user with their ${context.event_type} planning.
+  return `You are an experienced event planner. Help the user with their ${context.event_type} planning.
 
 Event Context:
 - Title: "${context.title}"
@@ -270,7 +278,8 @@ Event Context:
 - Date: ${context.event_date}
 - Venue: ${context.venue || 'Not booked'}
 - Guests: ${context.guest_count}
-- Budget: $${context.budget_total.toLocaleString()} (Spent: $${context.budget_spent.toLocaleString()})
+- Currency: ${context.currency || 'USD'}
+- Budget: ${money(context, context.budget_total)} (Spent: ${money(context, context.budget_spent)})
 - Status: ${context.budget_spent > 0 ? 'In progress' : 'Just started'}
 
 Conversation History:
@@ -278,7 +287,7 @@ ${historyText}
 
 User: ${userMessage}
 
-Respond as a helpful, knowledgeable event planner. Be specific, actionable, and encouraging. If they ask for ideas, give creative suggestions. If they ask for advice, give expert guidance. Keep responses concise but thorough.`
+Answer like an experienced event planner. Be specific and practical. Skip praise and filler. If the user asks for ideas, give a few clear options. If you are unsure, say so. Keep answers short unless the user asks for detail.`
 }
 
 function getSeason(dateStr: string): string {

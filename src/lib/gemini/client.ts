@@ -81,6 +81,13 @@ async function callModel(
           "x-goog-api-key": getApiKey(),
         },
         body: JSON.stringify({
+          systemInstruction: {
+            parts: [
+              {
+                text: "Write in plain, natural English. Do not use em dashes or en dashes. Avoid marketing language, buzzwords, and exaggerated adjectives. Keep descriptions concrete and specific.",
+              },
+            ],
+          },
           contents: [{ role: "user", parts: [{ text: prompt }] }],
           generationConfig: {
             temperature,
@@ -152,7 +159,7 @@ async function callGemini(
       lastError = error
       const status = error instanceof GeminiError ? error.status : 0
 
-      // A bad request or missing key will fail on every model — don't waste time.
+      // A bad request or missing key will fail on every model, so stop early.
       if (status === 400 || status === 401 || status === 403) {
         throw error
       }
@@ -184,7 +191,7 @@ async function callGemini(
     throw new GeminiError(friendly, lastError.status)
   }
 
-  throw new Error("AI generation failed. Please try again.")
+  throw new Error("Could not generate the plan. Please try again.")
 }
 
 function extractJson<T>(text: string): T {
@@ -204,7 +211,7 @@ function extractJson<T>(text: string): T {
         // fall through to the friendly error below
       }
     }
-    throw new Error("The AI returned an unreadable response. Please try again.")
+    throw new Error("Gemini returned a response we could not read. Please try again.")
   }
 }
 

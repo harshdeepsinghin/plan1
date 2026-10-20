@@ -1,7 +1,9 @@
 import Link from "next/link"
 import { notFound } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { getEvent } from "@/actions/event"
+import { getCurrentProfile } from "@/lib/auth"
+import { getEvent } from "@/lib/data/events"
+import { createFormatters, resolvePreferences } from "@/lib/preferences"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -26,8 +28,6 @@ import {
 } from "lucide-react"
 import {
   cn,
-  formatCurrency,
-  formatDate,
   getDaysUntil,
   getEventTypeLabel,
   getStatusColor,
@@ -50,7 +50,7 @@ function googleCalendarUrl(event: any) {
     action: "TEMPLATE",
     text: event.title,
     dates: `${date}/${endDate}`,
-    details: `Planned with EventPlanner.${event.venue ? ` Venue: ${event.venue}` : ""}`,
+    details: `Planned with plan1.${event.venue ? ` Venue: ${event.venue}` : ""}`,
     location: event.venue || "",
   })
   return `https://calendar.google.com/calendar/render?${params.toString()}`
@@ -58,9 +58,10 @@ function googleCalendarUrl(event: any) {
 
 export default async function EventOverviewPage({ params }: Props) {
   const { id } = await params
-  const event = await getEvent(id)
+  const [event, profile] = await Promise.all([getEvent(id), getCurrentProfile()])
   if (!event) notFound()
 
+  const { formatCurrency, formatDate } = createFormatters(resolvePreferences(profile))
   const supabase = await createClient()
   const [categoriesResult, milestonesResult, vendorsResult, guestsResult, tasksResult] =
     await Promise.all([
@@ -153,9 +154,9 @@ export default async function EventOverviewPage({ params }: Props) {
     },
     {
       href: `/events/${id}/ai-assistant`,
-      label: "AI Assistant",
+      label: "Assistant",
       icon: Bot,
-      detail: "Generate themes, speeches, and plans",
+      detail: "Drafts and planning help",
       percent: null,
     },
   ]
@@ -214,7 +215,7 @@ export default async function EventOverviewPage({ params }: Props) {
         </div>
       </section>
 
-      {/* AI theme */}
+      {/* Theme */}
       {theme?.theme_name ? (
         <Card className="overflow-hidden">
           <CardHeader className="pb-3">
@@ -222,7 +223,7 @@ export default async function EventOverviewPage({ params }: Props) {
               <div>
                 <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-primary">
                   <Sparkles className="h-3.5 w-3.5" />
-                  Your AI theme
+                  Theme
                 </p>
                 <CardTitle className="mt-1 text-2xl">{theme.theme_name}</CardTitle>
                 {theme.description ? (
@@ -289,9 +290,9 @@ export default async function EventOverviewPage({ params }: Props) {
                 <Sparkles className="h-6 w-6" />
               </div>
               <div>
-                <p className="font-semibold">Let Gemini design your theme</p>
+                <p className="font-semibold">No theme yet</p>
                 <p className="text-sm text-muted-foreground">
-                  Get a concept, colour palette, and decor direction in seconds.
+                  Gemini can suggest a concept, colours, and a decor direction.
                 </p>
               </div>
             </div>
@@ -350,7 +351,7 @@ export default async function EventOverviewPage({ params }: Props) {
             {upcomingMilestones.length === 0 ? (
               <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-sm text-muted-foreground">
                 <CheckCircle2 className="h-8 w-8 text-emerald-500" />
-                Everything is done — or add milestones to get started.
+                All milestones are done. Add more in the timeline.
               </div>
             ) : (
               <div className="space-y-2">
@@ -392,7 +393,7 @@ export default async function EventOverviewPage({ params }: Props) {
         <Card>
           <CardHeader>
             <CardTitle className="text-base">Google tools</CardTitle>
-            <CardDescription>Everything connected to your plan</CardDescription>
+            <CardDescription>Calendar, directions, map, and the assistant</CardDescription>
           </CardHeader>
           <CardContent className="space-y-2">
             <Button asChild variant="outline" className="w-full justify-start">
@@ -415,10 +416,21 @@ export default async function EventOverviewPage({ params }: Props) {
                 </a>
               </Button>
             ) : null}
+            {event.venue ? (
+              <div className="overflow-hidden rounded-lg border bg-muted">
+                <iframe
+                  title={`Google Map of ${event.venue}`}
+                  src={`https://maps.google.com/maps?q=${encodeURIComponent(event.venue)}&z=14&output=embed`}
+                  className="h-44 w-full"
+                  loading="lazy"
+                  referrerPolicy="no-referrer-when-downgrade"
+                />
+              </div>
+            ) : null}
             <Button asChild variant="outline" className="w-full justify-start">
               <Link href={`/events/${id}/ai-assistant`}>
                 <Sparkles className="mr-2 h-4 w-4 text-primary" />
-                Google Gemini assistant
+                Gemini assistant
                 <ArrowRight className="ml-auto h-3.5 w-3.5" />
               </Link>
             </Button>
@@ -430,7 +442,7 @@ export default async function EventOverviewPage({ params }: Props) {
               </p>
               <p className="flex items-center gap-1.5">
                 <DollarSign className="h-3.5 w-3.5" />
-                {formatCurrency(spent)} spent · {budgetPercent}% used
+                {formatCurrency(spent)} spent, {budgetPercent}% used
               </p>
             </div>
           </CardContent>

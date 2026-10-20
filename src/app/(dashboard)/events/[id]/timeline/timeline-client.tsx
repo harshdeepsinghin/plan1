@@ -37,7 +37,8 @@ import {
   AlertTriangle,
   ListChecks,
 } from "lucide-react"
-import { cn, formatDate, getDaysUntil, getPriorityColor, getPriorityLabel } from "@/lib/utils"
+import { cn, getDaysUntil, getPriorityColor, getPriorityLabel } from "@/lib/utils"
+import { usePreferences } from "@/components/providers/preferences-provider"
 
 export interface Milestone {
   id: string
@@ -62,6 +63,7 @@ const CATEGORIES = ["booking", "payments", "design", "logistics", "other"]
 
 export function TimelineClient({ eventId, eventDate, initialMilestones }: Props) {
   const router = useRouter()
+  const { formatDate } = usePreferences()
   const { toast } = useToast()
   const [addOpen, setAddOpen] = useState(false)
   const [pending, setPending] = useState(false)
@@ -129,7 +131,7 @@ export function TimelineClient({ eventId, eventDate, initialMilestones }: Props)
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Timeline</h1>
           <p className="text-sm text-muted-foreground">
-            A countdown of everything that needs to happen before the big day.
+            Things to do between now and the event.
           </p>
         </div>
         <Button onClick={() => setAddOpen(true)}>
@@ -203,7 +205,7 @@ export function TimelineClient({ eventId, eventDate, initialMilestones }: Props)
             <div>
               <h3 className="font-semibold">Nothing here yet</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Add a milestone, or generate a complete planning timeline in the AI Assistant.
+                Add a milestone, or generate a timeline in the assistant.
               </p>
             </div>
             <Button onClick={() => setAddOpen(true)}>
@@ -231,7 +233,7 @@ export function TimelineClient({ eventId, eventDate, initialMilestones }: Props)
           <DialogHeader>
             <DialogTitle>Add a milestone</DialogTitle>
             <DialogDescription>
-              Big or small, every step gets you closer to the celebration.
+              Add a date and priority. You can edit it later.
             </DialogDescription>
           </DialogHeader>
           <form action={handleCreate} className="space-y-4">
@@ -349,6 +351,7 @@ function MilestoneRow({
   onToggle: () => void
 }) {
   const router = useRouter()
+  const { formatDate } = usePreferences()
   const { toast } = useToast()
   const [editOpen, setEditOpen] = useState(false)
   const [pending, setPending] = useState(false)

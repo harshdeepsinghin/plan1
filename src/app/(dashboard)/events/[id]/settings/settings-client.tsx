@@ -33,7 +33,8 @@ import {
   Share2,
   Smartphone,
 } from "lucide-react"
-import { cn, formatDate, formatCurrency } from "@/lib/utils"
+import { cn } from "@/lib/utils"
+import { usePreferences } from "@/components/providers/preferences-provider"
 
 export interface Collaborator {
   id: string
@@ -89,9 +90,9 @@ function buildIcs(event: any): string {
   return [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
-    "PRODID:-//EventPlanner//EN",
+    "PRODID:-//plan1//EN",
     "BEGIN:VEVENT",
-    `UID:${event.id}@eventplanner`,
+    `UID:${event.id}@plan1.app`,
     `DTSTAMP:${new Date().toISOString().replace(/[-:]/g, "").split(".")[0]}Z`,
     `DTSTART;VALUE=DATE:${date}`,
     `DTEND;VALUE=DATE:${endDate}`,
@@ -114,7 +115,7 @@ function googleCalendarUrl(event: any): string {
     action: "TEMPLATE",
     text: event.title,
     dates: `${date}/${endDate}`,
-    details: `Planned with EventPlanner. ${event.venue ? `Venue: ${event.venue}` : ""}`,
+    details: `Planned with plan1. ${event.venue ? `Venue: ${event.venue}` : ""}`,
     location: event.venue || "",
   })
   return `https://calendar.google.com/calendar/render?${params.toString()}`
@@ -122,6 +123,7 @@ function googleCalendarUrl(event: any): string {
 
 export function SettingsClient({ event, collaborators, exportData, isOwner }: Props) {
   const router = useRouter()
+  const { formatCurrency, currency } = usePreferences()
   const { toast } = useToast()
   const [saving, setSaving] = useState(false)
   const [inviting, setInviting] = useState(false)
@@ -407,7 +409,7 @@ export function SettingsClient({ event, collaborators, exportData, isOwner }: Pr
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="settings-budget">Total budget (USD)</Label>
+                  <Label htmlFor="settings-budget">Total budget ({currency})</Label>
                   <Input
                     id="settings-budget"
                     name="budget_total"
@@ -558,7 +560,7 @@ export function SettingsClient({ event, collaborators, exportData, isOwner }: Pr
                   <CalendarPlus className="h-4 w-4 text-primary" />
                   Google Calendar
                 </CardTitle>
-                <CardDescription>Add the celebration to your Google Calendar.</CardDescription>
+                <CardDescription>Add this event to your Google Calendar.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Button asChild className="w-full">
@@ -616,7 +618,7 @@ export function SettingsClient({ event, collaborators, exportData, isOwner }: Pr
                   Export your plan
                 </CardTitle>
                 <CardDescription>
-                  Download a copy for spreadsheets, a printed folder, or your co-host.
+                  Download a copy for a spreadsheet, a printed folder, or a co-host.
                 </CardDescription>
               </CardHeader>
               <CardContent className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">

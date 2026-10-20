@@ -16,6 +16,15 @@ const nextConfig = {
       },
     ],
   },
+  experimental: {
+    // Keep visited planner pages in the client router cache for 30s so
+    // moving between budget, guests, tasks, etc. feels instant. Server
+    // actions still call revalidatePath() and bust the affected entries.
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
+  },
 }
 
 export default nextConfig

@@ -44,7 +44,8 @@ import {
   Loader2,
   Receipt,
 } from "lucide-react"
-import { cn, formatCurrency, getStatusColor } from "@/lib/utils"
+import { cn, getStatusColor } from "@/lib/utils"
+import { usePreferences } from "@/components/providers/preferences-provider"
 
 export interface BudgetItem {
   id: string
@@ -81,6 +82,7 @@ function itemSpent(item: BudgetItem) {
 
 export function BudgetClient({ eventId, initialCategories, eventBudget }: Props) {
   const router = useRouter()
+  const { formatCurrency } = usePreferences()
   const { toast } = useToast()
   const [addCategoryOpen, setAddCategoryOpen] = useState(false)
   const [pending, setPending] = useState(false)
@@ -131,7 +133,7 @@ export function BudgetClient({ eventId, initialCategories, eventBudget }: Props)
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Budget</h1>
           <p className="text-sm text-muted-foreground">
-            Allocate every dollar and track actual spend by category.
+            Set an amount for each category and track what you spend.
           </p>
         </div>
         <Button onClick={() => setAddCategoryOpen(true)}>
@@ -189,7 +191,7 @@ export function BudgetClient({ eventId, initialCategories, eventBudget }: Props)
             <div>
               <h3 className="font-semibold">No budget categories yet</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                Add your first category, or ask the AI Assistant to generate a full breakdown.
+                Add your first category, or ask the assistant for a full breakdown.
               </p>
             </div>
             <Button onClick={() => setAddCategoryOpen(true)}>
@@ -283,6 +285,7 @@ function SummaryCard({
 
 function CategoryCard({ eventId, category }: { eventId: string; category: BudgetCategory }) {
   const router = useRouter()
+  const { formatCurrency } = usePreferences()
   const { toast } = useToast()
   const [editOpen, setEditOpen] = useState(false)
   const [addItemOpen, setAddItemOpen] = useState(false)
@@ -535,6 +538,7 @@ function ItemRow({
   categoryName: string
 }) {
   const router = useRouter()
+  const { formatCurrency } = usePreferences()
   const { toast } = useToast()
   const [editOpen, setEditOpen] = useState(false)
   const [pending, setPending] = useState(false)
@@ -579,7 +583,7 @@ function ItemRow({
           <p className="font-medium">{item.name}</p>
           {item.notes ? <p className="text-xs text-muted-foreground">{item.notes}</p> : null}
         </TableCell>
-        <TableCell className="text-muted-foreground">{item.vendor || "—"}</TableCell>
+        <TableCell className="text-muted-foreground">{item.vendor || "Not set"}</TableCell>
         <TableCell className="text-right">{formatCurrency(Number(item.estimated_cost) || 0)}</TableCell>
         <TableCell className="text-right font-medium">
           {formatCurrency(Number(item.actual_cost) || 0)}

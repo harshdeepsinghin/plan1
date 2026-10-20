@@ -23,6 +23,7 @@ interface EventContext {
   guest_count: number
   budget_total: number
   budget_spent: number
+  currency: string
 }
 
 async function getEventContext(eventId: string): Promise<EventContext | null> {
@@ -30,6 +31,12 @@ async function getEventContext(eventId: string): Promise<EventContext | null> {
   const { data: event } = await supabase.from('events').select('*').eq('id', eventId).maybeSingle()
 
   if (!event) return null
+
+  const { data: owner } = await supabase
+    .from('profiles')
+    .select('currency')
+    .eq('id', event.user_id)
+    .maybeSingle()
 
   return {
     event_type: event.event_type,
@@ -39,6 +46,7 @@ async function getEventContext(eventId: string): Promise<EventContext | null> {
     guest_count: event.guest_count,
     budget_total: Number(event.budget_total) || 0,
     budget_spent: Number(event.budget_spent) || 0,
+    currency: owner?.currency || 'USD',
   }
 }
 

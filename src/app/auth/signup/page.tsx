@@ -1,20 +1,21 @@
 import Link from "next/link"
 import SignupForm from "./signup-client"
+import { BrandLogo } from "@/components/brand/logo"
 
 export const metadata = {
-  title: "Create account | EventPlanner",
+  title: "Create account | plan1",
 }
 
 export default function SignupPage() {
   return (
     <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-background">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col items-center justify-center px-4 py-10">
-        <Link href="/" className="mb-8 flex items-center gap-2 text-2xl font-bold">
-          <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary text-primary-foreground">
-            🎉
-          </span>
-          EventPlanner
-        </Link>
+        <BrandLogo
+          href="/"
+          className="mb-8"
+          markClassName="h-11 w-11 rounded-2xl"
+          wordmarkClassName="text-2xl"
+        />
         <SignupForm />
         <p className="mt-6 text-sm text-muted-foreground">
           Already have an account?{" "}
