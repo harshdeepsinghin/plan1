@@ -3,16 +3,16 @@
 import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { generateJSON, generateText } from '@/lib/gemini/client'
-import { 
-  buildThemePrompt, 
-  buildColorPalettePrompt, 
+import {
+  buildThemePrompt,
+  buildColorPalettePrompt,
   buildVendorSuggestionsPrompt,
   buildTimelinePrompt,
   buildBudgetBreakdownPrompt,
   buildActivityIdeasPrompt,
   buildChecklistPrompt,
   buildSpeechPrompt,
-  buildChatPrompt 
+  buildChatPrompt,
 } from '@/lib/gemini/prompts'
 
 interface EventContext {
@@ -27,35 +27,37 @@ interface EventContext {
 
 async function getEventContext(eventId: string): Promise<EventContext | null> {
   const supabase = await createClient()
-  const { data: event } = await supabase
-    .from('events')
-    .select('*')
-    .eq('id', eventId)
-    .single()
-  
+  const { data: event } = await supabase.from('events').select('*').eq('id', eventId).maybeSingle()
+
   if (!event) return null
-  
+
   return {
     event_type: event.event_type,
     title: event.title,
     event_date: event.event_date,
-    venue: event.venue,
+    venue: event.venue || undefined,
     guest_count: event.guest_count,
-    budget_total: event.budget_total,
-    budget_spent: event.budget_spent,
+    budget_total: Number(event.budget_total) || 0,
+    budget_spent: Number(event.budget_spent) || 0,
   }
 }
 
-export async function generateTheme(eventId: string) {
+async function requireUser() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
   if (!user) throw new Error('Unauthorized')
+  return { supabase, user }
+}
 
+export async function generateTheme(eventId: string) {
+  const { supabase } = await requireUser()
   const context = await getEventContext(eventId)
   if (!context) throw new Error('Event not found')
 
-  const theme = await generateJSON(buildThemePrompt(context))
-  
+  const theme = await generateJSON<any>(buildThemePrompt(context))
+
   await supabase.from('events').update({ ai_generated_theme: theme }).eq('id', eventId)
   await supabase.from('ai_ideas').insert({
     event_id: eventId,
@@ -64,16 +66,13 @@ export async function generateTheme(eventId: string) {
     prompt_used: 'theme_generation',
   })
 
-  revalidatePath(`/events/${eventId}`)
+  revalidatePath(`/events/${eventId}/overview`)
   revalidatePath(`/events/${eventId}/ai-assistant`)
   return theme
 }
 
 export async function generateColorPalette(eventId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-
+  const { supabase } = await requireUser()
   const context = await getEventContext(eventId)
   if (!context) throw new Error('Event not found')
 
@@ -81,10 +80,12 @@ export async function generateColorPalette(eventId: string) {
     .from('events')
     .select('ai_generated_theme')
     .eq('id', eventId)
-    .single()
+    .maybeSingle()
 
-  const palette = await generateJSON(buildColorPalettePrompt(context, event?.ai_generated_theme))
-  
+  const palette = await generateJSON<any>(
+    buildColorPalettePrompt(context, event?.ai_generated_theme || undefined)
+  )
+
   await supabase.from('ai_ideas').insert({
     event_id: eventId,
     idea_type: 'color_palette',
@@ -97,15 +98,12 @@ export async function generateColorPalette(eventId: string) {
 }
 
 export async function generateVendorSuggestions(eventId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-
+  const { supabase } = await requireUser()
   const context = await getEventContext(eventId)
   if (!context) throw new Error('Event not found')
 
-  const suggestions = await generateJSON(buildVendorSuggestionsPrompt(context))
-  
+  const suggestions = await generateJSON<any>(buildVendorSuggestionsPrompt(context))
+
   await supabase.from('ai_ideas').insert({
     event_id: eventId,
     idea_type: 'vendor_suggestions',
@@ -119,26 +117,35 @@ export async function generateVendorSuggestions(eventId: string) {
 }
 
 export async function generateTimeline(eventId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-
+  const { supabase } = await requireUser()
   const context = await getEventContext(eventId)
   if (!context) throw new Error('Event not found')
 
-  const timeline = await generateJSON(buildTimelinePrompt(context))
-  
-  if (timeline.milestones?.length) {
-    await supabase.from('milestones').insert(
-      timeline.milestones.map((m: any, i: number) => ({
-        ...m,
-        event_id: eventId,
-        priority: m.priority || 2,
-        sort_order: i,
-      }))
-    )
+  const timeline = await generateJSON<any>(buildTimelinePrompt(context))
+
+  if (timeline?.milestones?.length) {
+    const { count } = await supabase
+      .from('milestones')
+      .select('*', { count: 'exact', head: true })
+      .eq('event_id', eventId)
+
+    if (!count) {
+      await supabase.from('milestones').insert(
+        timeline.milestones.slice(0, 20).map((milestone: any, index: number) => ({
+          event_id: eventId,
+          title: String(milestone.title || `Milestone ${index + 1}`).slice(0, 100),
+          description: milestone.description ? String(milestone.description).slice(0, 500) : null,
+          due_date: milestone.due_date || context.event_date,
+          category: ['booking', 'payments', 'design', 'logistics', 'other'].includes(milestone.category)
+            ? milestone.category
+            : 'other',
+          priority: [1, 2, 3].includes(Number(milestone.priority)) ? Number(milestone.priority) : 2,
+          sort_order: index,
+        }))
+      )
+    }
   }
-  
+
   await supabase.from('ai_ideas').insert({
     event_id: eventId,
     idea_type: 'timeline',
@@ -152,26 +159,32 @@ export async function generateTimeline(eventId: string) {
 }
 
 export async function generateBudgetBreakdown(eventId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-
+  const { supabase } = await requireUser()
   const context = await getEventContext(eventId)
   if (!context) throw new Error('Event not found')
 
-  const budget = await generateJSON(buildBudgetBreakdownPrompt(context))
-  
-  if (budget.categories?.length) {
-    const categories = await supabase.from('budget_categories').insert(
-      budget.categories.map((c: any, i: number) => ({
-        event_id: eventId,
-        name: c.name,
-        allocated: c.amount || Math.round(context.budget_total * ((c.percentage || 10) / 100)),
-        sort_order: i,
-      }))
-    ).select()
+  const budget = await generateJSON<any>(buildBudgetBreakdownPrompt(context))
+
+  if (budget?.categories?.length) {
+    const { count } = await supabase
+      .from('budget_categories')
+      .select('*', { count: 'exact', head: true })
+      .eq('event_id', eventId)
+
+    if (!count) {
+      await supabase.from('budget_categories').insert(
+        budget.categories.slice(0, 16).map((category: any, index: number) => ({
+          event_id: eventId,
+          name: String(category.name || `Category ${index + 1}`).slice(0, 50),
+          allocated:
+            Number(category.amount) ||
+            Math.round((context.budget_total * (Number(category.percentage) || 10)) / 100),
+          sort_order: index,
+        }))
+      )
+    }
   }
-  
+
   await supabase.from('ai_ideas').insert({
     event_id: eventId,
     idea_type: 'budget_breakdown',
@@ -185,15 +198,12 @@ export async function generateBudgetBreakdown(eventId: string) {
 }
 
 export async function generateActivityIdeas(eventId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-
+  const { supabase } = await requireUser()
   const context = await getEventContext(eventId)
   if (!context) throw new Error('Event not found')
 
-  const activities = await generateJSON(buildActivityIdeasPrompt(context))
-  
+  const activities = await generateJSON<any>(buildActivityIdeasPrompt(context))
+
   await supabase.from('ai_ideas').insert({
     event_id: eventId,
     idea_type: 'activities',
@@ -206,15 +216,12 @@ export async function generateActivityIdeas(eventId: string) {
 }
 
 export async function generateChecklist(eventId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-
+  const { supabase } = await requireUser()
   const context = await getEventContext(eventId)
   if (!context) throw new Error('Event not found')
 
-  const checklist = await generateJSON(buildChecklistPrompt(context))
-  
+  const checklist = await generateJSON<any>(buildChecklistPrompt(context))
+
   await supabase.from('ai_ideas').insert({
     event_id: eventId,
     idea_type: 'checklist',
@@ -226,44 +233,46 @@ export async function generateChecklist(eventId: string) {
   return checklist
 }
 
-export async function generateSpeech(eventId: string, role: string, relationship: string, tone: string, keyMemories: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-
+export async function generateSpeech(
+  eventId: string,
+  role: string,
+  relationship: string,
+  tone: string,
+  keyMemories: string
+) {
+  const { supabase } = await requireUser()
   const context = await getEventContext(eventId)
   if (!context) throw new Error('Event not found')
 
-  const speech = await generateJSON(buildSpeechPrompt(context, role, relationship, tone, keyMemories))
-  
+  const speech = await generateJSON<any>(
+    buildSpeechPrompt(context, role, relationship, tone, keyMemories)
+  )
+
   await supabase.from('ai_ideas').insert({
     event_id: eventId,
     idea_type: 'speech',
     content: speech,
-    prompt_used: `speech_${role}`,
+    prompt_used: `speech_${role}`.slice(0, 100),
   })
 
   revalidatePath(`/events/${eventId}/ai-assistant`)
   return speech
 }
 
-export async function chatWithAI(eventId: string, message: string, history: Array<{role: string, content: string}>) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-
+export async function chatWithAI(
+  eventId: string,
+  message: string,
+  history: Array<{ role: string; content: string }>
+) {
+  await requireUser()
   const context = await getEventContext(eventId)
   if (!context) throw new Error('Event not found')
 
-  const response = await generateText(buildChatPrompt(context, message, history))
-  
-  return response
+  return generateText(buildChatPrompt(context, message, history))
 }
 
 export async function getAIIdeas(eventId: string) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
+  const { supabase } = await requireUser()
 
   const { data, error } = await supabase
     .from('ai_ideas')

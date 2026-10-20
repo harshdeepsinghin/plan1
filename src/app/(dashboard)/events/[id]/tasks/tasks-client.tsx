@@ -1,30 +1,58 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core"
+import {
+  createTask,
+  deleteTask,
+  updateTask,
+  updateTaskStatus,
+} from "@/actions/task"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Edit, Trash2, ClipboardList, Loader2, GripVertical, MoreHorizontal, Calendar, Flag, User } from "lucide-react"
-import { cn, formatDate, getPriorityColor, getPriorityLabel } from "@/lib/utils"
-import { z } from "zod"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { createTask, updateTask, updateTaskStatus, deleteTask, reorderTasks } from "@/actions/task"
-import { taskSchema } from "@/lib/validations/event"
 import { useToast } from "@/hooks/use-toast"
-import { useRouter } from "next/navigation"
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core"
-import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  GripVertical,
+  Loader2,
+  ClipboardList,
+  CheckCircle2,
+  Clock,
+  AlertTriangle,
+  Flag,
+  CalendarDays,
+  User,
+} from "lucide-react"
+import { cn, formatDate, getDaysUntil, getPriorityColor, getPriorityLabel } from "@/lib/utils"
 
-interface Task {
+export interface Task {
   id: string
+  event_id: string
   title: string
   description: string | null
   status: string
@@ -37,391 +65,573 @@ interface Task {
   updated_at: string
 }
 
-interface Props {
-  params: Promise<{ id: string }>
-  initialData: {
-    event: any
-    tasks: Task[]
-    milestones: any[]
-    collaborators: any[]
-  }
+interface Member {
+  id: string
+  name: string
 }
 
-const formSchema = taskSchema
+interface Props {
+  eventId: string
+  initialTasks: Task[]
+  members: Member[]
+}
 
-const columns = [
-  { id: "todo", title: "To Do" },
-  { id: "in_progress", title: "In Progress" },
-  { id: "review", title: "Review" },
-  { id: "done", title: "Done" },
+const COLUMNS = [
+  { id: "todo", label: "To do", accent: "bg-slate-400" },
+  { id: "in_progress", label: "In progress", accent: "bg-blue-500" },
+  { id: "review", label: "Review", accent: "bg-amber-500" },
+  { id: "done", label: "Done", accent: "bg-emerald-500" },
 ]
 
-export function TasksClient({ params, initialData }: Props) {
-  const { id } = params
+export function TasksClient({ eventId, initialTasks, members }: Props) {
   const router = useRouter()
   const { toast } = useToast()
-  const [tasks, setTasks] = useState<Task[]>(initialData.tasks)
-  const [editingTask, setEditingTask] = useState<Task | null>(null)
-  const [filterAssignee, setFilterAssignee] = useState<string>("all")
-  const [filterPriority, setFilterPriority] = useState<string>("all")
-  const [isLoading, setIsLoading] = useState(false)
-
-  const form = useForm({ resolver: zodResolver(formSchema), defaultValues: { title: "", status: "todo", priority: "2" } })
-
-  const assignees = initialData.collaborators.filter(c => c.accepted_at).map(c => c.profiles).filter(Boolean)
-  const milestones = initialData.milestones
+  const [addOpen, setAddOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [activeId, setActiveId] = useState<string | null>(null)
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    })
   )
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event
-    if (over && active.id !== over.id) {
-      const activeId = active.id as string
-      const overId = over.id as string
-      
-      const activeTask = tasks.find(t => t.id === activeId)
-      const overTask = tasks.find(t => t.id === overId)
-      
-      if (activeTask && overTask) {
-        if (activeTask.status === overTask.status) {
-          const columnTasks = tasks.filter(t => t.status === activeTask.status).sort((a, b) => a.sort_order - b.sort_order)
-          const oldIndex = columnTasks.findIndex(t => t.id === activeId)
-          const newIndex = columnTasks.findIndex(t => t.id === overId)
-          const newColumnTasks = Array.from(columnTasks)
-          const [removed] = newColumnTasks.splice(oldIndex, 1)
-          newColumnTasks.splice(newIndex, 0, removed)
-          
-          const reordered = newColumnTasks.map((t, i) => ({ id: t.id, sort_order: i, status: t.status }))
-          setTasks(prev => prev.map(t => {
-            const updated = reordered.find(r => r.id === t.id)
-            return updated ? { ...t, ...updated } : t
-          }))
-          
-          try {
-            await reorderTasks(id, reordered)
-          } catch (error: any) {
-            toast({ title: "Error", description: error.message, variant: "destructive" })
-            setTasks(tasks)
-          }
-        } else {
-          const newStatus = overTask.status
-          try {
-            await updateTaskStatus(activeId, id, newStatus)
-            toast({ title: `Moved to ${columns.find(c => c.id === newStatus)?.title}` })
-            router.refresh()
-          } catch (error: any) {
-            toast({ title: "Error", description: error.message, variant: "destructive" })
-          }
-        }
-      }
-    }
-  }
+  const done = initialTasks.filter((task) => task.status === "done")
+  const overdue = initialTasks.filter(
+    (task) =>
+      task.status !== "done" &&
+      task.due_date &&
+      getDaysUntil(task.due_date) < 0
+  )
+  const dueSoon = initialTasks.filter(
+    (task) =>
+      task.status !== "done" &&
+      task.due_date &&
+      getDaysUntil(task.due_date) >= 0 &&
+      getDaysUntil(task.due_date) <= 7
+  )
 
-  async function handleSubmit(data: any) {
-    setIsLoading(true)
+  const activeTask = initialTasks.find((task) => task.id === activeId) || null
+  const memberById = useMemo(
+    () => Object.fromEntries(members.map((member) => [member.id, member.name])),
+    [members]
+  )
+
+  async function handleCreate(formData: FormData) {
+    setPending(true)
     try {
-      if (editingTask) {
-        await updateTask(editingTask.id, id, new FormData(Object.entries(data)))
-        toast({ title: "Task updated" })
-      } else {
-        await createTask(id, new FormData(Object.entries(data)))
-        toast({ title: "Task created" })
-      }
+      await createTask(eventId, formData)
+      setAddOpen(false)
+      toast({ title: "Task created" })
       router.refresh()
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } catch (error) {
+      toast({
+        title: "Could not create task",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
     } finally {
-      setIsLoading(false)
-      setEditingTask(null)
-      form.reset()
+      setPending(false)
     }
   }
 
-  async function handleDelete(taskId: string) {
-    if (!confirm("Delete this task?")) return
+  async function handleStatusChange(taskId: string, status: string) {
     try {
-      await deleteTask(taskId, id)
-      toast({ title: "Task deleted" })
+      await updateTaskStatus(taskId, eventId, status)
       router.refresh()
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } catch (error) {
+      toast({
+        title: "Could not move task",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    }
+  }
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id))
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null)
+    const overId = event.over?.id
+    if (!overId) return
+
+    const columnId = String(overId).replace("column-", "")
+    const task = initialTasks.find((item) => item.id === String(event.active.id))
+    if (task && COLUMNS.some((column) => column.id === columnId) && task.status !== columnId) {
+      handleStatusChange(task.id, columnId)
     }
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Task Board</h1>
-          <p className="text-muted-foreground">Kanban-style task management for your event</p>
+          <h1 className="text-2xl font-bold tracking-tight">Tasks</h1>
+          <p className="text-sm text-muted-foreground">
+            Everything that needs doing, from booking to day-of logistics.
+          </p>
         </div>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Task
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>{editingTask ? "Edit Task" : "Add Task"}</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                <FormField control={form.control} name="title" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title</FormLabel>
-                    <FormControl><Input placeholder="Finalize seating chart" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="description" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description</FormLabel>
-                    <FormControl><Textarea placeholder="Details..." {...field} /></FormControl>
-                  </FormItem>
-                )} />
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField control={form.control} name="status" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          {columns.map(c => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="priority" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Priority</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger><SelectValue placeholder="Priority" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value="1">High</SelectItem>
-                          <SelectItem value="2">Medium</SelectItem>
-                          <SelectItem value="3">Low</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )} />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField control={form.control} name="assignee_id" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Assignee</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger><SelectValue placeholder="Unassigned" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value="">Unassigned</SelectItem>
-                          {assignees.map(a => <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="due_date" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Due Date</FormLabel>
-                      <FormControl><Input type="date" {...field} /></FormControl>
-                    </FormItem>
-                  )} />
-                </div>
-                <FormField control={form.control} name="milestone_id" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Milestone (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Link to milestone" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="">None</SelectItem>
-                        {milestones.map(m => <SelectItem key={m.id} value={m.id}>{m.title}</SelectItem>)}
-                      </SelectContent>
-                    </Select>
-                  </FormItem>
-                )} />
-                <DialogFooter>
-                  <Button type="submit" disabled={isLoading}>{isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} {editingTask ? "Save" : "Create"}</Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={() => setAddOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add task
+        </Button>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-4">
-            <Select value={filterAssignee} onValueChange={setFilterAssignee}>
-              <SelectTrigger className="w-[200px]"><SelectValue placeholder="All Assignees" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Assignees</SelectItem>
-                <SelectItem value="unassigned">Unassigned</SelectItem>
-                {assignees.map(a => <SelectItem key={a.id} value={a.id}>{a.full_name}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterPriority} onValueChange={setFilterPriority}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="All Priorities" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Priorities</SelectItem>
-                <SelectItem value="1">High</SelectItem>
-                <SelectItem value="2">Medium</SelectItem>
-                <SelectItem value="3">Low</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={<ClipboardList className="h-5 w-5" />} label="Total tasks" value={String(initialTasks.length)} />
+        <StatCard
+          icon={<CheckCircle2 className="h-5 w-5" />}
+          label="Completed"
+          value={`${done.length} / ${initialTasks.length}`}
+          hint={initialTasks.length > 0 ? `${Math.round((done.length / initialTasks.length) * 100)}% done` : undefined}
+        />
+        <StatCard
+          icon={<Clock className="h-5 w-5" />}
+          label="Due this week"
+          value={String(dueSoon.length)}
+        />
+        <StatCard
+          icon={<AlertTriangle className="h-5 w-5" />}
+          label="Overdue"
+          value={String(overdue.length)}
+          tone={overdue.length > 0 ? "danger" : "default"}
+        />
+      </div>
 
-      {/* Kanban Board */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <div className="grid gap-4 lg:grid-cols-4 h-[calc(100vh-350px)]">
-          {columns.map(column => (
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          {COLUMNS.map((column) => (
             <TaskColumn
               key={column.id}
               column={column}
-              tasks={tasks.filter(t => 
-                t.status === column.id &&
-                (filterAssignee === "all" || 
-                 (filterAssignee === "unassigned" ? !t.assignee_id : t.assignee_id === filterAssignee)) &&
-                (filterPriority === "all" || t.priority.toString() === filterPriority)
-              )}
-              onEdit={setEditingTask}
-              onDelete={handleDelete}
-              isEditing={editingTask}
-              form={form}
-              onSave={handleSubmit}
-              onCancel={() => { setEditingTask(null); form.reset() }}
+              eventId={eventId}
+              tasks={initialTasks.filter((task) => task.status === column.id)}
+              members={members}
+              memberById={memberById}
+              onStatusChange={handleStatusChange}
             />
           ))}
         </div>
+        <DragOverlay>
+          {activeTask ? (
+            <div className="w-64 rotate-2 rounded-xl border bg-card p-3 shadow-2xl">
+              <p className="text-sm font-semibold">{activeTask.title}</p>
+              <p className="mt-1 text-xs text-muted-foreground">{getPriorityLabel(activeTask.priority)} priority</p>
+            </div>
+          ) : null}
+        </DragOverlay>
       </DndContext>
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add a task</DialogTitle>
+            <DialogDescription>Assign it, set a due date, and keep moving.</DialogDescription>
+          </DialogHeader>
+          <form action={handleCreate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="task-title">Task</Label>
+              <Input id="task-title" name="title" placeholder="e.g. Confirm final headcount" required />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="task-status">Status</Label>
+                <select
+                  id="task-status"
+                  name="status"
+                  defaultValue="todo"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {COLUMNS.map((column) => (
+                    <option key={column.id} value={column.id}>
+                      {column.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="task-priority">Priority</Label>
+                <select
+                  id="task-priority"
+                  name="priority"
+                  defaultValue="2"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="1">High</option>
+                  <option value="2">Medium</option>
+                  <option value="3">Low</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="task-due">Due date</Label>
+                <Input id="task-due" name="due_date" type="date" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="task-assignee">Assignee</Label>
+                <select
+                  id="task-assignee"
+                  name="assignee_id"
+                  defaultValue=""
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">Unassigned</option>
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="task-description">Notes</Label>
+              <Textarea
+                id="task-description"
+                name="description"
+                rows={3}
+                placeholder="Any details or links"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Add task
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
-function TaskColumn({ column, tasks, onEdit, onDelete, isEditing, form, onSave, onCancel }: {
-  column: { id: string; title: string }
-  tasks: Task[]
-  onEdit: (t: Task) => void
-  onDelete: (id: string) => void
-  isEditing: Task | null
-  form: any
-  onSave: (data: any) => void
-  onCancel: () => void
+function StatCard({
+  icon,
+  label,
+  value,
+  hint,
+  tone = "default",
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  hint?: string
+  tone?: "default" | "danger"
 }) {
-  const columnColors: Record<string, string> = {
-    todo: "bg-gray-100 border-gray-200",
-    in_progress: "bg-blue-100 border-blue-200",
-    review: "bg-orange-100 border-orange-200",
-    done: "bg-green-100 border-green-200",
+  return (
+    <Card>
+      <CardContent className="flex items-start gap-3 p-5">
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+            tone === "danger" ? "bg-red-100 text-red-700" : "bg-primary/10 text-primary"
+          )}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="truncate text-xl font-bold">{value}</p>
+          {hint ? <p className="truncate text-xs text-muted-foreground">{hint}</p> : null}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function TaskColumn({
+  column,
+  eventId,
+  tasks,
+  members,
+  memberById,
+  onStatusChange,
+}: {
+  column: { id: string; label: string; accent: string }
+  eventId: string
+  tasks: Task[]
+  members: Member[]
+  memberById: Record<string, string>
+  onStatusChange: (taskId: string, status: string) => void
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `column-${column.id}` })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex min-h-[260px] flex-col rounded-2xl border bg-muted/40 p-3 transition-colors",
+        isOver && "border-primary bg-primary/5"
+      )}
+    >
+      <div className="mb-3 flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          <span className={cn("h-2 w-2 rounded-full", column.accent)} />
+          <span className="text-sm font-semibold">{column.label}</span>
+        </div>
+        <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted-foreground">
+          {tasks.length}
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col gap-2">
+        {tasks.map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            eventId={eventId}
+            members={members}
+            assigneeName={task.assignee_id ? memberById[task.assignee_id] : null}
+            onStatusChange={onStatusChange}
+          />
+        ))}
+        {tasks.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed p-4 text-center text-xs text-muted-foreground">
+            Drop tasks here
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function TaskCard({
+  task,
+  eventId,
+  members,
+  assigneeName,
+  onStatusChange,
+}: {
+  task: Task
+  eventId: string
+  members: Member[]
+  assigneeName: string | null | undefined
+  onStatusChange: (taskId: string, status: string) => void
+}) {
+  const router = useRouter()
+  const { toast } = useToast()
+  const [editOpen, setEditOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: task.id,
+  })
+
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined
+
+  const overdue =
+    task.status !== "done" && task.due_date && getDaysUntil(task.due_date) < 0
+
+  async function handleUpdate(formData: FormData) {
+    setPending(true)
+    try {
+      await updateTask(task.id, eventId, formData)
+      setEditOpen(false)
+      toast({ title: "Task updated" })
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Could not update task",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Delete "${task.title}"?`)) return
+    try {
+      await deleteTask(task.id, eventId)
+      toast({ title: "Task deleted" })
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Could not delete task",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    }
   }
 
   return (
-    <div className={cn("flex flex-col h-full", columnColors[column.id])}>
-      <div className="p-3 border-b font-semibold flex items-center justify-between">
-        <span>{column.title}</span>
-        <span className="text-sm font-normal text-muted-foreground">{tasks.length}</span>
-      </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
-        <SortableContext items={tasks.map(t => t.id)} strategy={verticalListSortingStrategy}>
-          {tasks.map(task => (
-            <SortableTaskCard
-              key={task.id}
-              task={task}
-              onEdit={onEdit}
-              onDelete={onDelete}
-              isEditing={isEditing?.id === task.id}
-              form={form}
-              onSave={onSave}
-              onCancel={onCancel}
-            />
-          ))}
-        </SortableContext>
-        {tasks.length === 0 && (
-          <div className="text-center text-muted-foreground py-8 text-sm">
-            Drop tasks here or click "Add Task"
-          </div>
+    <>
+      <Card
+        ref={setNodeRef}
+        style={style}
+        className={cn(
+          "bg-card shadow-sm transition-shadow hover:shadow-md",
+          isDragging && "opacity-40"
         )}
-      </div>
-    </div>
-  )
-}
+      >
+        <CardContent className="space-y-2 p-3">
+          <div className="flex items-start justify-between gap-1">
+            <p className={cn("text-sm font-medium", task.status === "done" && "line-through text-muted-foreground")}>
+              {task.title}
+            </p>
+            <button
+              type="button"
+              className="cursor-grab touch-none rounded p-1 text-muted-foreground hover:bg-accent active:cursor-grabbing"
+              aria-label="Drag task"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          </div>
 
-function SortableTaskCard({ task, onEdit, onDelete, isEditing, form, onSave, onCancel }: {
-  task: Task
-  onEdit: (t: Task) => void
-  onDelete: (id: string) => void
-  isEditing: boolean
-  form: any
-  onSave: (data: any) => void
-  onCancel: () => void
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: task.id })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
+          {task.description ? (
+            <p className="line-clamp-2 text-xs text-muted-foreground">{task.description}</p>
+          ) : null}
 
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <Card className={cn("transition-shadow", isDragging && "shadow-lg")}>
-        <CardContent className="p-3">
-          {isEditing ? (
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSave)} className="space-y-2">
-                <FormField control={form.control} name="title" render={({ field }) => <FormControl><Input {...field} autoFocus /></FormControl>} />
-                <FormField control={form.control} name="status" render={({ field }) => (
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {columns.map(c => <SelectItem key={c.id} value={c.id}>{c.title}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                )} />
-                <div className="flex gap-2">
-                  <Button type="submit" size="sm">Save</Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-                </div>
-              </form>
-            </Form>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-start justify-between">
-                <div className="flex-1 min-w-0">
-                  <h4 className="font-medium">{task.title}</h4>
-                  {task.description && <p className="text-sm text-muted-foreground mt-1">{task.description}</p>}
-                </div>
-                <Button variant="ghost" size="icon" {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
-                  <GripVertical className="h-4 w-4 text-muted-foreground" />
-                </Button>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                {task.due_date && (
-                  <Badge variant="secondary" className="flex items-center gap-1">
-                    <Calendar className="h-3 w-3" />
-                    {formatDate(task.due_date)}
-                  </Badge>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Badge variant="secondary" className={cn("text-[10px]", getPriorityColor(task.priority))}>
+              <Flag className="mr-1 h-2.5 w-2.5" />
+              {getPriorityLabel(task.priority)}
+            </Badge>
+            {task.due_date ? (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-[10px]",
+                  overdue && "border-red-300 bg-red-50 text-red-700"
                 )}
-                <Badge className={getPriorityColor(task.priority)}>
-                  <Flag className="h-3 w-3 mr-1" />
-                  {getPriorityLabel(task.priority)}
-                </Badge>
-                {task.assignee_id && (
-                  <Badge variant="outline" className="flex items-center gap-1">
-                    <User className="h-3 w-3" />
-                    Assigned
-                  </Badge>
-                )}
-              </div>
-              <div className="flex items-center justify-between pt-2 border-t">
-                <Button variant="ghost" size="icon" onClick={() => onEdit(task)}><Edit className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => onDelete(task.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
-              </div>
+              >
+                <CalendarDays className="mr-1 h-2.5 w-2.5" />
+                {formatDate(task.due_date)}
+              </Badge>
+            ) : null}
+          </div>
+
+          {assigneeName ? (
+            <p className="flex items-center gap-1 text-xs text-muted-foreground">
+              <User className="h-3 w-3" />
+              {assigneeName}
+            </p>
+          ) : null}
+
+          <div className="flex items-center justify-between border-t pt-2">
+            <select
+              value={task.status}
+              onChange={(event) => onStatusChange(task.id, event.target.value)}
+              className="h-7 rounded-md border border-input bg-background px-1 text-xs"
+              aria-label="Task status"
+            >
+              {COLUMNS.map((column) => (
+                <option key={column.id} value={column.id}>
+                  {column.label}
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleDelete}>
+                <Trash2 className="h-3.5 w-3.5 text-red-600" />
+              </Button>
             </div>
-          )}
+          </div>
         </CardContent>
       </Card>
-    </div>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit task</DialogTitle>
+          </DialogHeader>
+          <form action={handleUpdate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor={`task-title-${task.id}`}>Task</Label>
+              <Input id={`task-title-${task.id}`} name="title" defaultValue={task.title} required />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`task-status-${task.id}`}>Status</Label>
+                <select
+                  id={`task-status-${task.id}`}
+                  name="status"
+                  defaultValue={task.status}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {COLUMNS.map((column) => (
+                    <option key={column.id} value={column.id}>
+                      {column.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`task-priority-${task.id}`}>Priority</Label>
+                <select
+                  id={`task-priority-${task.id}`}
+                  name="priority"
+                  defaultValue={String(task.priority)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="1">High</option>
+                  <option value="2">Medium</option>
+                  <option value="3">Low</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`task-due-${task.id}`}>Due date</Label>
+                <Input
+                  id={`task-due-${task.id}`}
+                  name="due_date"
+                  type="date"
+                  defaultValue={task.due_date || ""}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`task-assignee-${task.id}`}>Assignee</Label>
+                <select
+                  id={`task-assignee-${task.id}`}
+                  name="assignee_id"
+                  defaultValue={task.assignee_id || ""}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="">Unassigned</option>
+                  {members.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`task-description-${task.id}`}>Notes</Label>
+              <Textarea
+                id={`task-description-${task.id}`}
+                name="description"
+                rows={3}
+                defaultValue={task.description || ""}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

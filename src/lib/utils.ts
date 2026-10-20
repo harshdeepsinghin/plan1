@@ -15,27 +15,76 @@ export function formatCurrency(amount: number | null | undefined): string {
   }).format(amount)
 }
 
+function parseDate(value: string | Date): Date {
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number)
+    return new Date(year, month - 1, day)
+  }
+  return new Date(value)
+}
+
 export function formatDate(date: string | Date): string {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
     year: 'numeric',
-  }).format(new Date(date))
+  }).format(parseDate(date))
 }
 
 export function formatDateShort(date: string | Date): string {
   return new Intl.DateTimeFormat('en-US', {
     month: 'short',
     day: 'numeric',
-  }).format(new Date(date))
+  }).format(parseDate(date))
 }
 
 export function getDaysUntil(date: string | Date): number {
-  const target = new Date(date)
+  const target = parseDate(date)
+  target.setHours(0, 0, 0, 0)
   const today = new Date()
   today.setHours(0, 0, 0, 0)
   const diff = target.getTime() - today.getTime()
-  return Math.ceil(diff / (1000 * 60 * 60 * 24))
+  return Math.round(diff / (1000 * 60 * 60 * 24))
+}
+
+export interface ThemeColor {
+  hex: string
+  name?: string
+  role?: string
+  usage?: string
+}
+
+export function getThemeColors(theme: any): ThemeColor[] {
+  const palette = theme?.color_palette
+  if (!palette) return []
+
+  if (Array.isArray(palette?.colors)) {
+    return palette.colors.filter((color: any) => Boolean(color?.hex))
+  }
+
+  if (Array.isArray(palette)) {
+    return palette.filter((color: any) => Boolean(color?.hex))
+  }
+
+  const roleOrder = ['primary', 'secondary', 'accent', 'neutral', 'highlight']
+
+  return Object.entries(palette)
+    .filter(([, value]) => typeof value === 'string' && value.startsWith('#'))
+    .sort(([a], [b]) => {
+      const aIndex = roleOrder.indexOf(a)
+      const bIndex = roleOrder.indexOf(b)
+      return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex)
+    })
+    .map(([role, hex]) => ({
+      role,
+      name: role.charAt(0).toUpperCase() + role.slice(1),
+      hex: String(hex),
+    }))
+}
+
+export function getThemeKeywords(theme: any): string[] {
+  const keywords = theme?.mood_keywords || theme?.mood_board_keywords
+  return Array.isArray(keywords) ? keywords.filter((keyword) => typeof keyword === 'string') : []
 }
 
 export function getEventTypeLabel(type: string): string {

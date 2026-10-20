@@ -1,28 +1,56 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useRef, useState } from "react"
+import { useRouter } from "next/navigation"
+import {
+  createGuest,
+  createGuestsBulk,
+  deleteGuest,
+  updateGuest,
+  updateGuestRsvp,
+} from "@/actions/guest"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Table, TableHeader, TableBody, TableRow, TableHead, TableCell, TableFooter } from "@/components/ui/table"
-import { Badge } from "@/components/ui/badge"
-import { Plus, Edit, Trash2, Users, Download, Upload, Loader2, Search, Filter, Check, X, Minus, Clock } from "lucide-react"
-import { cn, formatDate } from "@/lib/utils"
-import { z } from "zod"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { createGuest, createGuestsBulk, updateGuest, deleteGuest } from "@/actions/guest"
-import { guestSchema } from "@/lib/validations/event"
-import { useToast } from "@/hooks/use-toast"
-import { useRouter } from "next/navigation"
 import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { useToast } from "@/hooks/use-toast"
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Search,
+  Download,
+  Upload,
+  Users,
+  UserCheck,
+  Clock,
+  UtensilsCrossed,
+  Loader2,
+  Heart,
+} from "lucide-react"
+import { cn, formatDate, getStatusColor } from "@/lib/utils"
 
-interface Guest {
+export interface Guest {
   id: string
+  event_id: string
   name: string
   email: string | null
   phone: string | null
@@ -36,414 +64,685 @@ interface Guest {
 }
 
 interface Props {
-  params: Promise<{ id: string }>
-  initialData: {
-    event: any
-    guests: Guest[]
-  }
+  eventId: string
+  initialGuests: Guest[]
 }
 
-const formSchema = guestSchema
+const RSVP_OPTIONS = ["pending", "yes", "no", "maybe"]
 
-export function GuestsClient({ params, initialData }: Props) {
-  const { id } = params
+function toCsvValue(value: unknown): string {
+  const stringValue = value === null || value === undefined ? "" : String(value)
+  if (/[",\n\r]/.test(stringValue)) {
+    return `"${stringValue.replace(/"/g, '""')}"`
+  }
+  return stringValue
+}
+
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = []
+  let row: string[] = []
+  let field = ""
+  let inQuotes = false
+
+  for (let index = 0; index < text.length; index += 1) {
+    const char = text[index]
+    const next = text[index + 1]
+
+    if (inQuotes) {
+      if (char === '"' && next === '"') {
+        field += '"'
+        index += 1
+      } else if (char === '"') {
+        inQuotes = false
+      } else {
+        field += char
+      }
+    } else if (char === '"') {
+      inQuotes = true
+    } else if (char === ",") {
+      row.push(field)
+      field = ""
+    } else if (char === "\n") {
+      row.push(field)
+      rows.push(row)
+      row = []
+      field = ""
+    } else if (char === "\r") {
+      // ignore, handled by \n
+    } else {
+      field += char
+    }
+  }
+
+  if (field.length > 0 || row.length > 0) {
+    row.push(field)
+    rows.push(row)
+  }
+
+  return rows.filter((entry) => entry.some((cell) => cell.trim() !== ""))
+}
+
+export function GuestsClient({ eventId, initialGuests }: Props) {
   const router = useRouter()
   const { toast } = useToast()
-  const [guests, setGuests] = useState<Guest[]>(initialData.guests)
-  const [editingGuest, setEditingGuest] = useState<Guest | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [filterCategory, setFilterCategory] = useState<string>("all")
-  const [filterRSVP, setFilterRSVP] = useState<string>("all")
-  const [isLoading, setIsLoading] = useState(false)
-  const [showImport, setShowImport] = useState(false)
-  const [csvText, setCsvText] = useState("")
+  const [addOpen, setAddOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const [query, setQuery] = useState("")
+  const [rsvpFilter, setRsvpFilter] = useState("all")
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const form = useForm({ resolver: zodResolver(formSchema), defaultValues: { name: "", rsvp_status: "pending", plus_one: false } })
+  const attending = initialGuests.filter((guest) => guest.rsvp_status === "yes")
+  const pendingInvites = initialGuests.filter((guest) => guest.rsvp_status === "pending")
+  const declined = initialGuests.filter((guest) => guest.rsvp_status === "no")
+  const plusOnes = initialGuests.filter((guest) => guest.plus_one).length
+  const headcount =
+    attending.length + attending.filter((guest) => guest.plus_one).length
 
-  const categories = [...new Set(guests.map(g => g.category).filter(Boolean))]
-  const filteredGuests = guests.filter(g => 
-    (g.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-     g.email?.toLowerCase().includes(searchQuery.toLowerCase())) &&
-    (filterCategory === "all" || g.category === filterCategory) &&
-    (filterRSVP === "all" || g.rsvp_status === filterRSVP)
-  )
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    return initialGuests.filter((guest) => {
+      if (rsvpFilter !== "all" && guest.rsvp_status !== rsvpFilter) return false
+      if (!normalized) return true
+      return [guest.name, guest.email, guest.phone, guest.category]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalized))
+    })
+  }, [initialGuests, query, rsvpFilter])
 
-  const stats = {
-    total: guests.length,
-    yes: guests.filter(g => g.rsvp_status === "yes").length,
-    no: guests.filter(g => g.rsvp_status === "no").length,
-    maybe: guests.filter(g => g.rsvp_status === "maybe").length,
-    pending: guests.filter(g => g.rsvp_status === "pending").length,
-    plusOnes: guests.filter(g => g.plus_one).length,
-  }
-
-  async function handleSubmit(data: any) {
-    setIsLoading(true)
+  async function handleCreate(formData: FormData) {
+    setPending(true)
     try {
-      if (editingGuest) {
-        await updateGuest(editingGuest.id, id, new FormData(Object.entries(data)))
-        toast({ title: "Guest updated" })
-      } else {
-        await createGuest(id, new FormData(Object.entries(data)))
-        toast({ title: "Guest added" })
-      }
+      await createGuest(eventId, formData)
+      setAddOpen(false)
+      toast({ title: "Guest added" })
       router.refresh()
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } catch (error) {
+      toast({
+        title: "Could not add guest",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
     } finally {
-      setIsLoading(false)
-      setEditingGuest(null)
-      form.reset()
+      setPending(false)
     }
   }
 
-  async function handleBulkImport() {
-    if (!csvText.trim()) return
-    setIsLoading(true)
+  async function handleRsvp(guestId: string, status: string) {
     try {
-      const lines = csvText.trim().split('\n')
-      const headers = lines[0].split(',').map(h => h.trim().toLowerCase())
-      const nameIdx = headers.indexOf('name')
-      const emailIdx = headers.indexOf('email')
-      const phoneIdx = headers.indexOf('phone')
-      const categoryIdx = headers.indexOf('category')
-      const plusOneIdx = headers.indexOf('plus_one')
-      const plusOneNameIdx = headers.indexOf('plus_one_name')
-      const rsvpIdx = headers.indexOf('rsvp_status')
-      const dietaryIdx = headers.indexOf('dietary_restrictions')
-      const notesIdx = headers.indexOf('notes')
+      await updateGuestRsvp(guestId, eventId, status)
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Could not update RSVP",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    }
+  }
 
-      if (nameIdx === -1) throw new Error("CSV must have a 'name' column")
+  function exportCsv() {
+    const headers = [
+      "name",
+      "email",
+      "phone",
+      "category",
+      "rsvp_status",
+      "plus_one",
+      "plus_one_name",
+      "dietary_restrictions",
+      "notes",
+    ]
+    const lines = [
+      headers.join(","),
+      ...initialGuests.map((guest) =>
+        [
+          guest.name,
+          guest.email,
+          guest.phone,
+          guest.category,
+          guest.rsvp_status,
+          guest.plus_one,
+          guest.plus_one_name,
+          guest.dietary_restrictions,
+          guest.notes,
+        ]
+          .map(toCsvValue)
+          .join(",")
+      ),
+    ]
 
-      const guestsData = lines.slice(1).map(line => {
-        const values = line.split(',').map(v => v.trim())
-        return {
-          name: values[nameIdx],
-          email: emailIdx >= 0 ? values[emailIdx] || null : null,
-          phone: phoneIdx >= 0 ? values[phoneIdx] || null : null,
-          category: categoryIdx >= 0 ? values[categoryIdx] || null : null,
-          plus_one: plusOneIdx >= 0 ? values[plusOneIdx].toLowerCase() === 'true' : false,
-          plus_one_name: plusOneNameIdx >= 0 ? values[plusOneNameIdx] || null : null,
-          rsvp_status: rsvpIdx >= 0 ? values[rsvpIdx] || 'pending' : 'pending',
-          dietary_restrictions: dietaryIdx >= 0 ? values[dietaryIdx] || null : null,
-          notes: notesIdx >= 0 ? values[notesIdx] || null : null,
+    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = `guest-list-${new Date().toISOString().split("T")[0]}.csv`
+    link.click()
+    URL.revokeObjectURL(url)
+    toast({ title: "Guest list exported" })
+  }
+
+  async function handleImport(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    if (!file) return
+
+    setImporting(true)
+    try {
+      const text = await file.text()
+      const rows = parseCsv(text)
+      if (rows.length < 2) throw new Error("The CSV appears to be empty")
+
+      const headers = rows[0].map((header) => header.trim().toLowerCase())
+      const nameIndex = headers.indexOf("name")
+      if (nameIndex === -1) throw new Error('CSV must include a "name" column')
+
+      const guests = rows.slice(1).map((row) => {
+        const get = (key: string) => {
+          const index = headers.indexOf(key)
+          return index === -1 ? "" : (row[index] || "").trim()
         }
-      }).filter(g => g.name)
 
-      await createGuestsBulk(id, guestsData)
-      toast({ title: `${guestsData.length} guests imported` })
+        const plusOneValue = get("plus_one").toLowerCase()
+        return {
+          name: row[nameIndex]?.trim() || "",
+          email: get("email") || null,
+          phone: get("phone") || null,
+          category: get("category") || null,
+          plus_one: ["true", "yes", "1", "y"].includes(plusOneValue),
+          plus_one_name: get("plus_one_name") || null,
+          rsvp_status: RSVP_OPTIONS.includes(get("rsvp_status").toLowerCase())
+            ? get("rsvp_status").toLowerCase()
+            : "pending",
+          dietary_restrictions: get("dietary_restrictions") || null,
+          notes: get("notes") || null,
+        }
+      })
+
+      await createGuestsBulk(eventId, guests)
+      toast({ title: `${guests.length} guests imported` })
       router.refresh()
-      setShowImport(false)
-      setCsvText("")
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } catch (error) {
+      toast({
+        title: "Import failed",
+        description: error instanceof Error ? error.message : "Please check your CSV",
+        variant: "destructive",
+      })
     } finally {
-      setIsLoading(false)
+      setImporting(false)
+      if (fileInputRef.current) fileInputRef.current.value = ""
     }
-  }
-
-  async function handleDelete(guestId: string) {
-    if (!confirm("Delete this guest?")) return
-    try {
-      await deleteGuest(guestId, id)
-      toast({ title: "Guest deleted" })
-      router.refresh()
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
-    }
-  }
-
-  const rsvpColors: Record<string, string> = {
-    yes: "bg-green-100 text-green-800",
-    no: "bg-red-100 text-red-800",
-    maybe: "bg-yellow-100 text-yellow-800",
-    pending: "bg-gray-100 text-gray-800",
-  }
-
-  const rsvpIcons: Record<string, React.ReactNode> = {
-    yes: <Check className="h-3.5 w-3.5" />,
-    no: <X className="h-3.5 w-3.5" />,
-    maybe: <Minus className="h-3.5 w-3.5" />,
-    pending: <Clock className="h-3.5 w-3.5" />,
   }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Guest List</h1>
-          <p className="text-muted-foreground">Manage invitations, RSVPs, and guest details</p>
+          <h1 className="text-2xl font-bold tracking-tight">Guests</h1>
+          <p className="text-sm text-muted-foreground">
+            Manage invitations, RSVPs, plus-ones, and dietary needs.
+          </p>
         </div>
-        <div className="flex gap-2">
-          <Dialog open={showImport} onOpenChange={setShowImport}>
-            <DialogTrigger asChild>
-              <Button variant="outline">
+        <div className="flex flex-wrap gap-2">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".csv,text/csv"
+            className="hidden"
+            onChange={handleImport}
+          />
+          <Button
+            variant="outline"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={importing}
+          >
+            {importing ? (
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+            ) : (
+              <Upload className="mr-2 h-4 w-4" />
+            )}
+            Import CSV
+          </Button>
+          <Button variant="outline" onClick={exportCsv} disabled={initialGuests.length === 0}>
+            <Download className="mr-2 h-4 w-4" />
+            Export
+          </Button>
+          <Button onClick={() => setAddOpen(true)}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add guest
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={<Users className="h-5 w-5" />} label="Invited" value={String(initialGuests.length)} />
+        <StatCard
+          icon={<UserCheck className="h-5 w-5" />}
+          label="Attending"
+          value={String(headcount)}
+          hint={`${attending.length} RSVPs + ${headcount - attending.length} plus-ones`}
+        />
+        <StatCard
+          icon={<Clock className="h-5 w-5" />}
+          label="Awaiting reply"
+          value={String(pendingInvites.length)}
+          hint={`${declined.length} declined`}
+        />
+        <StatCard
+          icon={<UtensilsCrossed className="h-5 w-5" />}
+          label="Dietary notes"
+          value={String(initialGuests.filter((guest) => guest.dietary_restrictions).length)}
+          hint={`${plusOnes} plus-ones`}
+        />
+      </div>
+
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+        <div className="relative max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            placeholder="Search guests…"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            className="pl-9"
+          />
+        </div>
+        <select
+          value={rsvpFilter}
+          onChange={(event) => setRsvpFilter(event.target.value)}
+          className="h-10 rounded-md border border-input bg-background px-3 text-sm sm:w-44"
+          aria-label="Filter by RSVP"
+        >
+          <option value="all">All RSVPs</option>
+          <option value="yes">Attending</option>
+          <option value="pending">Pending</option>
+          <option value="maybe">Maybe</option>
+          <option value="no">Declined</option>
+        </select>
+      </div>
+
+      {initialGuests.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <Users className="h-7 w-7" />
+            </div>
+            <div>
+              <h3 className="font-semibold">No guests yet</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Add guests one by one or import a CSV list in seconds.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
                 <Upload className="mr-2 h-4 w-4" />
                 Import CSV
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-2xl">
-              <DialogHeader>
-                <DialogTitle>Import Guests from CSV</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4">
-                <Textarea
-                  placeholder="name,email,phone,category,plus_one,plus_one_name,rsvp_status,dietary_restrictions,notes
-John Doe,john@email.com,+1555123456,Family,true,Jane Doe,yes,Vegetarian,
-Jane Smith,jane@email.com,+1555123457,Friends,false,,pending,None,"
-                  value={csvText}
-                  onChange={(e) => setCsvText(e.target.value)}
-                  className="min-h-[200px] font-mono text-sm"
-                />
-                <p className="text-sm text-muted-foreground">Required: name. Optional: email, phone, category, plus_one (true/false), plus_one_name, rsvp_status (pending/yes/no/maybe), dietary_restrictions, notes</p>
-                <DialogFooter>
-                  <Button onClick={handleBulkImport} disabled={isLoading}>{isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Import</Button>
-                </DialogFooter>
-              </div>
-            </DialogContent>
-          </Dialog>
-          <Button>
-            <Download className="mr-2 h-4 w-4" />
-            Export CSV
-          </Button>
-          <Dialog>
-            <DialogTrigger asChild>
-              <Button>
+              <Button onClick={() => setAddOpen(true)}>
                 <Plus className="mr-2 h-4 w-4" />
-                Add Guest
+                Add guest
               </Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md">
-              <DialogHeader>
-                <DialogTitle>Add Guest</DialogTitle>
-              </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                  <FormField control={form.control} name="name" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Name</FormLabel>
-                      <FormControl><Input placeholder="John Doe" {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField control={form.control} name="email" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Email</FormLabel>
-                        <FormControl><Input type="email" placeholder="john@email.com" {...field} /></FormControl>
-                      </FormItem>
-                    )} />
-                    <FormField control={form.control} name="phone" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Phone</FormLabel>
-                        <FormControl><Input placeholder="+1 (555) 123-4567" {...field} /></FormControl>
-                      </FormItem>
-                    )} />
-                  </div>
-                  <FormField control={form.control} name="category" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Category</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          {["Family", "Friends", "Colleagues", "VIP", "Other"].map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )} />
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <FormField control={form.control} name="plus_one" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Plus One</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl><SelectTrigger><SelectValue placeholder="Plus One" /></SelectTrigger></FormControl>
-                          <SelectContent>
-                            <SelectItem value={false}>No</SelectItem>
-                            <SelectItem value={true}>Yes</SelectItem>
-                          </SelectContent>
-                        </Select>
-                      </FormItem>
-                    )} />
-                    <FormField control={form.control} name="plus_one_name" render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Plus One Name</FormLabel>
-                        <FormControl><Input placeholder="Jane Doe" {...field} /></FormControl>
-                      </FormItem>
-                    )} />
-                  </div>
-                  <FormField control={form.control} name="rsvp_status" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>RSVP Status</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          <SelectItem value="pending">Pending</SelectItem>
-                          <SelectItem value="yes">Yes</SelectItem>
-                          <SelectItem value="no">No</SelectItem>
-                          <SelectItem value="maybe">Maybe</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="dietary_restrictions" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Dietary Restrictions</FormLabel>
-                      <FormControl><Input placeholder="Vegetarian, nut allergy" {...field} /></FormControl>
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="notes" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Notes</FormLabel>
-                      <FormControl><Input placeholder="Special notes" {...field} /></FormControl>
-                    </FormItem>
-                  )} />
-                  <DialogFooter>
-                    <Button type="submit" disabled={isLoading}>{isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} Add Guest</Button>
-                  </DialogFooter>
-                </form>
-              </Form>
-            </DialogContent>
-          </Dialog>
-        </div>
-      </div>
-
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-6">
-        <StatCard title="Total" value={stats.total} icon={Users} color="blue" />
-        <StatCard title="Yes" value={stats.yes} icon={Check} color="green" />
-        <StatCard title="No" value={stats.no} icon={X} color="red" />
-        <StatCard title="Maybe" value={stats.maybe} icon={Minus} color="yellow" />
-        <StatCard title="Pending" value={stats.pending} icon={Clock} color="gray" />
-        <StatCard title="Plus Ones" value={stats.plusOnes} icon={Users} color="purple" />
-      </div>
-
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-4">
-            <div className="relative flex-1 min-w-[200px]">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-              <Input
-                placeholder="Search guests..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10"
-              />
             </div>
-            <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="All Categories" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterRSVP} onValueChange={setFilterRSVP}>
-              <SelectTrigger className="w-[150px]"><SelectValue placeholder="All RSVP" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All RSVP</SelectItem>
-                <SelectItem value="yes">Yes</SelectItem>
-                <SelectItem value="no">No</SelectItem>
-                <SelectItem value="maybe">Maybe</SelectItem>
-                <SelectItem value="pending">Pending</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Guest Table */}
-      <Card>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Name</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Contact</TableHead>
-                <TableHead>Plus One</TableHead>
-                <TableHead>RSVP</TableHead>
-                <TableHead>Dietary</TableHead>
-                <TableHead className="text-right">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filteredGuests.length === 0 ? (
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardContent className="overflow-x-auto p-0">
+            <Table>
+              <TableHeader>
                 <TableRow>
-                  <TableCell colSpan={7} className="text-center py-8 text-muted-foreground">
-                    No guests found
-                  </TableCell>
+                  <TableHead>Guest</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>RSVP</TableHead>
+                  <TableHead>Plus one</TableHead>
+                  <TableHead>Dietary needs</TableHead>
+                  <TableHead className="w-24 text-right">Actions</TableHead>
                 </TableRow>
-              ) : (
-                filteredGuests.map(guest => (
-                  <TableRow key={guest.id}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{guest.name}</p>
-                        {guest.notes && <p className="text-xs text-muted-foreground">{guest.notes}</p>}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {guest.category && <Badge variant="secondary">{guest.category}</Badge>}
-                    </TableCell>
-                    <TableCell>
-                      <div className="text-sm">
-                        {guest.email && <p>{guest.email}</p>}
-                        {guest.phone && <p className="text-muted-foreground">{guest.phone}</p>}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {guest.plus_one ? (
-                        <span className="text-green-600 font-medium">
-                          {guest.plus_one_name ? `+ ${guest.plus_one_name}` : "+1"}
-                        </span>
-                      ) : (
-                        <span className="text-muted-foreground">—</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <Badge className={cn(rsvpColors[guest.rsvp_status], "flex items-center gap-1")}>
-                        {rsvpIcons[guest.rsvp_status]}
-                        {guest.rsvp_status.charAt(0).toUpperCase() + guest.rsvp_status.slice(1)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>{guest.dietary_restrictions || <span className="text-muted-foreground">—</span>}</TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        <Button variant="ghost" size="icon" onClick={() => setEditingGuest(guest)}><Edit className="h-4 w-4" /></Button>
-                        <Button variant="ghost" size="icon" onClick={() => handleDelete(guest.id)}><Trash2 className="h-4 w-4" /></Button>
-                      </div>
+              </TableHeader>
+              <TableBody>
+                {filtered.map((guest) => (
+                  <GuestRow
+                    key={guest.id}
+                    guest={guest}
+                    eventId={eventId}
+                    onRsvp={handleRsvp}
+                  />
+                ))}
+                {filtered.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={6} className="py-10 text-center text-muted-foreground">
+                      No guests match your search.
                     </TableCell>
                   </TableRow>
-                ))
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+                ) : null}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
+
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Add a guest</DialogTitle>
+            <DialogDescription>They&apos;ll show up in your guest list right away.</DialogDescription>
+          </DialogHeader>
+          <form action={handleCreate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="guest-name">Full name</Label>
+              <Input id="guest-name" name="name" placeholder="e.g. Jamie Rivera" required />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="guest-email">Email</Label>
+                <Input id="guest-email" name="email" type="email" placeholder="Optional" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="guest-phone">Phone</Label>
+                <Input id="guest-phone" name="phone" placeholder="Optional" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="guest-category">Group</Label>
+                <Input id="guest-category" name="category" placeholder="e.g. Family, Work" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="guest-rsvp">RSVP</Label>
+                <select
+                  id="guest-rsvp"
+                  name="rsvp_status"
+                  defaultValue="pending"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm capitalize"
+                >
+                  {RSVP_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="hidden" name="plus_one" value="false" />
+              <input
+                id="guest-plus-one"
+                name="plus_one"
+                type="checkbox"
+                value="true"
+                className="h-4 w-4 rounded border-input"
+              />
+              <Label htmlFor="guest-plus-one" className="font-normal">
+                Bringing a plus one
+              </Label>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="guest-plus-one-name">Plus one name</Label>
+              <Input id="guest-plus-one-name" name="plus_one_name" placeholder="Optional" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="guest-dietary">Dietary restrictions</Label>
+              <Input id="guest-dietary" name="dietary_restrictions" placeholder="e.g. Vegetarian, nut allergy" />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="guest-notes">Notes</Label>
+              <Textarea id="guest-notes" name="notes" rows={2} placeholder="Optional" />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Add guest
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
-function StatCard({ title, value, icon: Icon, color }: { title: string; value: number; icon: React.ComponentType<{ className?: string }>; color: string }) {
-  const colors: Record<string, string> = {
-    blue: "bg-blue-100 text-blue-600",
-    green: "bg-green-100 text-green-600",
-    red: "bg-red-100 text-red-600",
-    yellow: "bg-yellow-100 text-yellow-600",
-    gray: "bg-gray-100 text-gray-600",
-    purple: "bg-purple-100 text-purple-600",
-  }
+function StatCard({
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  hint?: string
+}) {
   return (
     <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-muted-foreground">{title}</p>
-            <p className="text-2xl font-bold">{value}</p>
-          </div>
-          <div className={cn("p-3 rounded-xl", colors[color])}><Icon className="h-6 w-6" /></div>
+      <CardContent className="flex items-start gap-3 p-5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="truncate text-xl font-bold">{value}</p>
+          {hint ? <p className="truncate text-xs text-muted-foreground">{hint}</p> : null}
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function GuestRow({
+  guest,
+  eventId,
+  onRsvp,
+}: {
+  guest: Guest
+  eventId: string
+  onRsvp: (guestId: string, status: string) => void
+}) {
+  const router = useRouter()
+  const { toast } = useToast()
+  const [editOpen, setEditOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+
+  async function handleUpdate(formData: FormData) {
+    setPending(true)
+    try {
+      await updateGuest(guest.id, eventId, formData)
+      setEditOpen(false)
+      toast({ title: "Guest updated" })
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Could not update guest",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Remove ${guest.name} from the guest list?`)) return
+    try {
+      await deleteGuest(guest.id, eventId)
+      toast({ title: "Guest removed" })
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Could not remove guest",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    }
+  }
+
+  return (
+    <>
+      <TableRow>
+        <TableCell>
+          <div className="flex items-center gap-3">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+              {guest.name.charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate font-medium">{guest.name}</p>
+              {guest.email ? (
+                <p className="truncate text-xs text-muted-foreground">{guest.email}</p>
+              ) : null}
+            </div>
+          </div>
+        </TableCell>
+        <TableCell className="text-muted-foreground">{guest.category || "—"}</TableCell>
+        <TableCell>
+          <select
+            value={guest.rsvp_status}
+            onChange={(event) => onRsvp(guest.id, event.target.value)}
+            className={cn(
+              "h-8 rounded-full border-0 px-2 text-xs font-medium capitalize outline-none",
+              getStatusColor(guest.rsvp_status)
+            )}
+            aria-label={`RSVP status for ${guest.name}`}
+          >
+            {RSVP_OPTIONS.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </TableCell>
+        <TableCell>
+          {guest.plus_one ? (
+            <span className="flex items-center gap-1 text-sm">
+              <Heart className="h-3.5 w-3.5 text-rose-500" />
+              {guest.plus_one_name || "Plus one"}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </TableCell>
+        <TableCell className="max-w-[200px]">
+          {guest.dietary_restrictions ? (
+            <Badge variant="secondary" className="whitespace-normal text-left">
+              {guest.dietary_restrictions}
+            </Badge>
+          ) : (
+            <span className="text-muted-foreground">—</span>
+          )}
+        </TableCell>
+        <TableCell className="text-right">
+          <div className="flex justify-end gap-1">
+            <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)} aria-label="Edit guest">
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={handleDelete} aria-label="Delete guest">
+              <Trash2 className="h-3.5 w-3.5 text-red-600" />
+            </Button>
+          </div>
+        </TableCell>
+      </TableRow>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Edit guest</DialogTitle>
+          </DialogHeader>
+          <form action={handleUpdate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor={`guest-name-${guest.id}`}>Full name</Label>
+              <Input
+                id={`guest-name-${guest.id}`}
+                name="name"
+                defaultValue={guest.name}
+                required
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`guest-email-${guest.id}`}>Email</Label>
+                <Input
+                  id={`guest-email-${guest.id}`}
+                  name="email"
+                  type="email"
+                  defaultValue={guest.email || ""}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`guest-phone-${guest.id}`}>Phone</Label>
+                <Input id={`guest-phone-${guest.id}`} name="phone" defaultValue={guest.phone || ""} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`guest-category-${guest.id}`}>Group</Label>
+                <Input
+                  id={`guest-category-${guest.id}`}
+                  name="category"
+                  defaultValue={guest.category || ""}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`guest-rsvp-${guest.id}`}>RSVP</Label>
+                <select
+                  id={`guest-rsvp-${guest.id}`}
+                  name="rsvp_status"
+                  defaultValue={guest.rsvp_status}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm capitalize"
+                >
+                  {RSVP_OPTIONS.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input type="hidden" name="plus_one" value="false" />
+              <input
+                id={`guest-plus-one-${guest.id}`}
+                name="plus_one"
+                type="checkbox"
+                value="true"
+                defaultChecked={guest.plus_one}
+                className="h-4 w-4 rounded border-input"
+              />
+              <Label htmlFor={`guest-plus-one-${guest.id}`} className="font-normal">
+                Bringing a plus one
+              </Label>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`guest-plus-one-name-${guest.id}`}>Plus one name</Label>
+              <Input
+                id={`guest-plus-one-name-${guest.id}`}
+                name="plus_one_name"
+                defaultValue={guest.plus_one_name || ""}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`guest-dietary-${guest.id}`}>Dietary restrictions</Label>
+              <Input
+                id={`guest-dietary-${guest.id}`}
+                name="dietary_restrictions"
+                defaultValue={guest.dietary_restrictions || ""}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`guest-notes-${guest.id}`}>Notes</Label>
+              <Textarea
+                id={`guest-notes-${guest.id}`}
+                name="notes"
+                rows={2}
+                defaultValue={guest.notes || ""}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

@@ -1,29 +1,59 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core"
+import {
+  createVendor,
+  deleteVendor,
+  updateVendor,
+  updateVendorStatus,
+} from "@/actions/vendor"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Edit, Trash2, Truck, Star, Loader2, GripVertical, DollarSign, Mail, Phone, Globe } from "lucide-react"
-import { cn, formatCurrency } from "@/lib/utils"
-import { z } from "zod"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { createVendor, updateVendor, deleteVendor, reorderVendors } from "@/actions/vendor"
-import { vendorSchema } from "@/lib/validations/event"
 import { useToast } from "@/hooks/use-toast"
-import { useRouter } from "next/navigation"
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core"
-import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  GripVertical,
+  Star,
+  Mail,
+  Phone,
+  Globe,
+  Loader2,
+  Truck,
+  DollarSign,
+  BookmarkCheck,
+  Search,
+} from "lucide-react"
+import { cn, formatCurrency } from "@/lib/utils"
 
-interface Vendor {
+export interface Vendor {
   id: string
+  event_id: string
   name: string
   category: string
   contact_name: string | null
@@ -34,380 +64,635 @@ interface Vendor {
   status: string
   rating: number | null
   notes: string | null
-  created_at: string
   sort_order: number
 }
 
 interface Props {
-  params: Promise<{ id: string }>
-  initialData: {
-    event: any
-    vendors: Vendor[]
-  }
+  eventId: string
+  initialVendors: Vendor[]
 }
 
-const formSchema = vendorSchema
+const COLUMNS = [
+  { id: "researching", label: "Researching", accent: "bg-slate-400" },
+  { id: "contacted", label: "Contacted", accent: "bg-blue-500" },
+  { id: "quoted", label: "Quoted", accent: "bg-violet-500" },
+  { id: "negotiating", label: "Negotiating", accent: "bg-amber-500" },
+  { id: "booked", label: "Booked", accent: "bg-emerald-500" },
+  { id: "rejected", label: "Rejected", accent: "bg-rose-400" },
+]
 
-export function VendorsClient({ params, initialData }: Props) {
-  const { id } = params
+const CATEGORY_SUGGESTIONS = [
+  "Venue",
+  "Catering",
+  "Photography",
+  "Videography",
+  "Florist",
+  "DJ / Music",
+  "Cake",
+  "Decor",
+  "Makeup",
+  "Transport",
+]
+
+export function VendorsClient({ eventId, initialVendors }: Props) {
   const router = useRouter()
   const { toast } = useToast()
-  const [vendors, setVendors] = useState<Vendor[]>(initialData.vendors)
-  const [editingVendor, setEditingVendor] = useState<Vendor | null>(null)
-  const [filterStatus, setFilterStatus] = useState<string>("all")
-  const [filterCategory, setFilterCategory] = useState<string>("all")
-  const [isLoading, setIsLoading] = useState(false)
-
-  const form = useForm({ resolver: zodResolver(formSchema), defaultValues: { name: "", category: "", status: "researching" } })
+  const [addOpen, setAddOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [query, setQuery] = useState("")
+  const [activeId, setActiveId] = useState<string | null>(null)
 
   const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+    useSensor(PointerSensor, {
+      activationConstraint: { distance: 6 },
+    })
   )
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event
-    if (over && active.id !== over.id) {
-      const oldIndex = vendors.findIndex(v => v.id === active.id)
-      const newIndex = vendors.findIndex(v => v.id === over.id)
-      const newVendors = Array.from(vendors)
-      const [removed] = newVendors.splice(oldIndex, 1)
-      newVendors.splice(newIndex, 0, removed)
-      
-      const reordered = newVendors.map((v, i) => ({ id: v.id, sort_order: i }))
-      setVendors(newVendors)
-      
-      try {
-        await reorderVendors(id, reordered)
-      } catch (error: any) {
-        toast({ title: "Error", description: error.message, variant: "destructive" })
-        setVendors(vendors)
-      }
-    }
-  }
+  const filteredVendors = useMemo(() => {
+    const normalized = query.trim().toLowerCase()
+    if (!normalized) return initialVendors
+    return initialVendors.filter((vendor) =>
+      [vendor.name, vendor.category, vendor.contact_name]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(normalized))
+    )
+  }, [initialVendors, query])
 
-  const categories = [...new Set(vendors.map(v => v.category))]
-  const statuses = ["researching", "contacted", "quoted", "negotiating", "booked", "rejected"]
-  const filteredVendors = vendors.filter(v => 
-    (filterStatus === "all" || v.status === filterStatus) &&
-    (filterCategory === "all" || v.category === filterCategory)
-  )
+  const booked = initialVendors.filter((vendor) => vendor.status === "booked")
+  const committed = booked.reduce((sum, vendor) => sum + Number(vendor.quote_amount || 0), 0)
+  const quoted = initialVendors
+    .filter((vendor) => ["quoted", "negotiating", "booked"].includes(vendor.status))
+    .reduce((sum, vendor) => sum + Number(vendor.quote_amount || 0), 0)
 
-  async function handleSubmit(data: any) {
-    setIsLoading(true)
+  const activeVendor = initialVendors.find((vendor) => vendor.id === activeId) || null
+
+  async function handleCreate(formData: FormData) {
+    setPending(true)
     try {
-      if (editingVendor) {
-        await updateVendor(editingVendor.id, id, new FormData(Object.entries(data)))
-        toast({ title: "Vendor updated" })
-      } else {
-        await createVendor(id, new FormData(Object.entries(data)))
-        toast({ title: "Vendor added" })
-      }
+      await createVendor(eventId, formData)
+      setAddOpen(false)
+      toast({ title: "Vendor added" })
       router.refresh()
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } catch (error) {
+      toast({
+        title: "Could not add vendor",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
     } finally {
-      setIsLoading(false)
-      setEditingVendor(null)
-      form.reset()
+      setPending(false)
     }
   }
 
-  async function handleDelete(vendorId: string) {
-    if (!confirm("Delete this vendor?")) return
+  async function handleStatusChange(vendorId: string, status: string) {
     try {
-      await deleteVendor(vendorId, id)
-      toast({ title: "Vendor deleted" })
+      await updateVendorStatus(vendorId, eventId, status)
+      toast({ title: `Moved to ${status}` })
       router.refresh()
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } catch (error) {
+      toast({
+        title: "Could not update vendor",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
     }
   }
 
-  const statusColors: Record<string, string> = {
-    researching: "bg-gray-100 text-gray-800",
-    contacted: "bg-blue-100 text-blue-800",
-    quoted: "bg-yellow-100 text-yellow-800",
-    negotiating: "bg-orange-100 text-orange-800",
-    booked: "bg-green-100 text-green-800",
-    rejected: "bg-red-100 text-red-800",
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(String(event.active.id))
   }
 
-  const statusOrder = { researching: 0, contacted: 1, quoted: 2, negotiating: 3, booked: 4, rejected: 5 }
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null)
+    const overId = event.over?.id
+    if (!overId) return
+
+    const columnId = String(overId).replace("column-", "")
+    const vendor = initialVendors.find((item) => item.id === String(event.active.id))
+    if (vendor && COLUMNS.some((column) => column.id === columnId) && vendor.status !== columnId) {
+      handleStatusChange(vendor.id, columnId)
+    }
+  }
 
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Vendor Management</h1>
-          <p className="text-muted-foreground">Track vendors, quotes, and booking status</p>
+          <h1 className="text-2xl font-bold tracking-tight">Vendors</h1>
+          <p className="text-sm text-muted-foreground">
+            Track every supplier from first enquiry to booked. Drag cards between stages.
+          </p>
         </div>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button>
-              <Plus className="mr-2 h-4 w-4" />
-              Add Vendor
-            </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-2xl">
-            <DialogHeader>
-              <DialogTitle>{editingVendor ? "Edit Vendor" : "Add Vendor"}</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField control={form.control} name="name" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Vendor Name</FormLabel>
-                      <FormControl><Input placeholder="Elegant Events Co." {...field} /></FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="category" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Category</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          {["Venue", "Catering", "Photography", "Videography", "Decor", "Flowers", "Music/DJ", "Transportation", "Accommodation", "Other"].map(c => (
-                            <SelectItem key={c} value={c}>{c}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )} />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField control={form.control} name="contact_name" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Contact Name</FormLabel>
-                      <FormControl><Input placeholder="John Smith" {...field} /></FormControl>
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="email" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Email</FormLabel>
-                      <FormControl><Input type="email" placeholder="john@events.com" {...field} /></FormControl>
-                    </FormItem>
-                  )} />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <FormField control={form.control} name="phone" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Phone</FormLabel>
-                      <FormControl><Input placeholder="+1 (555) 123-4567" {...field} /></FormControl>
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="website" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Website</FormLabel>
-                      <FormControl><Input placeholder="https://events.com" {...field} /></FormControl>
-                    </FormItem>
-                  )} />
-                </div>
-                <div className="grid gap-4 sm:grid-cols-3">
-                  <FormField control={form.control} name="quote_amount" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Quote Amount ($)</FormLabel>
-                      <FormControl><Input type="number" step="0.01" min="0" {...field} /></FormControl>
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="status" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Status</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          {statuses.map(s => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )} />
-                  <FormField control={form.control} name="rating" render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Rating (1-5)</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl><SelectTrigger><SelectValue placeholder="Rating" /></SelectTrigger></FormControl>
-                        <SelectContent>
-                          {[1,2,3,4,5].map(n => <SelectItem key={n} value={n.toString()}>{n} Star{n > 1 ? 's' : ''}</SelectItem>)}
-                        </SelectContent>
-                      </Select>
-                    </FormItem>
-                  )} />
-                </div>
-                <FormField control={form.control} name="notes" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Notes</FormLabel>
-                    <FormControl><Input placeholder="Notes, requirements, etc." {...field} /></FormControl>
-                  </FormItem>
-                )} />
-                <DialogFooter>
-                  <Button type="submit" disabled={isLoading}>{isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} {editingVendor ? "Save" : "Add Vendor"}</Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
+        <Button onClick={() => setAddOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add vendor
+        </Button>
       </div>
 
-      {/* Filters */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="flex flex-wrap gap-4">
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Statuses" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Statuses</SelectItem>
-                {statuses.map(s => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <Select value={filterCategory} onValueChange={setFilterCategory}>
-              <SelectTrigger className="w-[180px]"><SelectValue placeholder="All Categories" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">All Categories</SelectItem>
-                {categories.map(c => <SelectItem key={c} value={c}>{c}</SelectItem>)}
-              </SelectContent>
-            </Select>
-            <div className="flex-1" />
-            <div className="text-sm text-muted-foreground">{filteredVendors.length} of {vendors.length} vendors</div>
-          </div>
-        </CardContent>
-      </Card>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={<Truck className="h-5 w-5" />} label="Vendors" value={String(initialVendors.length)} />
+        <StatCard
+          icon={<BookmarkCheck className="h-5 w-5" />}
+          label="Booked"
+          value={`${booked.length} / ${initialVendors.length}`}
+        />
+        <StatCard
+          icon={<DollarSign className="h-5 w-5" />}
+          label="Committed"
+          value={formatCurrency(committed)}
+          hint={`${formatCurrency(quoted)} quoted`}
+        />
+        <StatCard
+          icon={<Search className="h-5 w-5" />}
+          label="Still deciding"
+          value={String(
+            initialVendors.filter((vendor) =>
+              ["researching", "contacted", "quoted", "negotiating"].includes(vendor.status)
+            ).length
+          )}
+        />
+      </div>
 
-      {/* Kanban Board */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={filteredVendors.map(v => v.id)} strategy={verticalListSortingStrategy}>
-          <div className="grid gap-4 lg:grid-cols-2 xl:grid-cols-3 xxl:grid-cols-4 h-[calc(100vh-400px)] overflow-y-auto">
-            {statuses.map(status => (
-              <VendorStatusColumn
-                key={status}
-                status={status}
-                vendors={filteredVendors.filter(v => v.status === status)}
-                onEdit={setEditingVendor}
-                onDelete={handleDelete}
-                isEditing={editingVendor}
-                form={form}
-                onSave={handleSubmit}
-                onCancel={() => { setEditingVendor(null); form.reset() }}
-              />
-            ))}
-          </div>
-        </SortableContext>
+      <div className="relative max-w-sm">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          placeholder="Search vendors…"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          className="pl-9"
+        />
+      </div>
+
+      <DndContext
+        sensors={sensors}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+        onDragCancel={() => setActiveId(null)}
+      >
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-6">
+          {COLUMNS.map((column) => (
+            <VendorColumn
+              key={column.id}
+              column={column}
+              eventId={eventId}
+              vendors={filteredVendors.filter((vendor) => vendor.status === column.id)}
+              onStatusChange={handleStatusChange}
+            />
+          ))}
+        </div>
+        <DragOverlay>
+          {activeVendor ? <VendorCardPreview vendor={activeVendor} /> : null}
+        </DragOverlay>
       </DndContext>
-    </div>
-  )
-}
 
-function VendorStatusColumn({ status, vendors, onEdit, onDelete, isEditing, form, onSave, onCancel }: {
-  status: string
-  vendors: Vendor[]
-  onEdit: (v: Vendor) => void
-  onDelete: (id: string) => void
-  isEditing: Vendor | null
-  form: any
-  onSave: (data: any) => void
-  onCancel: () => void
-}) {
-  const statusColors: Record<string, string> = {
-    researching: "bg-gray-100 text-gray-800 border-gray-200",
-    contacted: "bg-blue-100 text-blue-800 border-blue-200",
-    quoted: "bg-yellow-100 text-yellow-800 border-yellow-200",
-    negotiating: "bg-orange-100 text-orange-800 border-orange-200",
-    booked: "bg-green-100 text-green-800 border-green-200",
-    rejected: "bg-red-100 text-red-800 border-red-200",
-  }
-
-  return (
-    <div className={cn("flex flex-col h-full", statusColors[status])}>
-      <div className="p-3 border-b font-semibold flex items-center justify-between">
-        <span>{status.charAt(0).toUpperCase() + status.slice(1)}</span>
-        <span className="text-sm font-normal text-muted-foreground">{vendors.length}</span>
-      </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-2">
-        {vendors.map(vendor => (
-          <SortableVendorCard
-            key={vendor.id}
-            vendor={vendor}
-            onEdit={onEdit}
-            onDelete={onDelete}
-            isEditing={isEditing?.id === vendor.id}
-            form={form}
-            onSave={onSave}
-            onCancel={onCancel}
-          />
-        ))}
-      </div>
-    </div>
-  )
-}
-
-function SortableVendorCard({ vendor, onEdit, onDelete, isEditing, form, onSave, onCancel }: {
-  vendor: Vendor
-  onEdit: (v: Vendor) => void
-  onDelete: (id: string) => void
-  isEditing: boolean
-  form: any
-  onSave: (data: any) => void
-  onCancel: () => void
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: vendor.id })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
-  const statusColors: Record<string, string> = {
-    researching: "bg-gray-100 text-gray-800",
-    contacted: "bg-blue-100 text-blue-800",
-    quoted: "bg-yellow-100 text-yellow-800",
-    negotiating: "bg-orange-100 text-orange-800",
-    booked: "bg-green-100 text-green-800",
-    rejected: "bg-red-100 text-red-800",
-  }
-
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <Card className={cn("transition-shadow", isDragging && "shadow-lg")}>
-        <CardContent className="p-3">
-          {isEditing ? (
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSave)} className="space-y-2">
-                <FormField control={form.control} name="name" render={({ field }) => <FormControl><Input {...field} autoFocus /></FormControl>} />
-                <FormField control={form.control} name="status" render={({ field }) => (
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
-                    <FormControl><SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger></FormControl>
-                    <SelectContent>
-                      {["researching", "contacted", "quoted", "negotiating", "booked", "rejected"].map(s => <SelectItem key={s} value={s}>{s.charAt(0).toUpperCase() + s.slice(1)}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
-                )} />
-                <div className="flex gap-2">
-                  <Button type="submit" size="sm">Save</Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-                </div>
-              </form>
-            </Form>
-          ) : (
-            <div className="space-y-2">
-              <div className="flex items-start justify-between">
-                <div>
-                  <h4 className="font-medium">{vendor.name}</h4>
-                  <p className="text-sm text-muted-foreground">{vendor.category}</p>
-                </div>
-                <Button variant="ghost" size="icon" {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
-                  <GripVertical className="h-4 w-4 text-muted-foreground" />
-                </Button>
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Add a vendor</DialogTitle>
+            <DialogDescription>Keep quotes, contacts, and status in one place.</DialogDescription>
+          </DialogHeader>
+          <form action={handleCreate} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="vendor-name">Vendor name</Label>
+                <Input id="vendor-name" name="name" placeholder="e.g. Bloom & Co." required />
               </div>
-              {vendor.contact_name && <p className="text-sm"><span className="font-medium">Contact:</span> {vendor.contact_name}</p>}
-              {vendor.email && <p className="text-sm"><span className="font-medium">Email:</span> {vendor.email}</p>}
-              {vendor.phone && <p className="text-sm"><span className="font-medium">Phone:</span> {vendor.phone}</p>}
-              {vendor.quote_amount && <p className="text-sm font-medium text-green-600">Quote: {formatCurrency(vendor.quote_amount)}</p>}
-              {vendor.rating && <p className="text-sm flex items-center gap-1"><Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" /> {vendor.rating}/5</p>}
-              <div className="flex items-center gap-2 pt-2 border-t">
-                <Badge className={statusColors[vendor.status]}>{vendor.status.charAt(0).toUpperCase() + vendor.status.slice(1)}</Badge>
-                <Button variant="ghost" size="icon" onClick={() => onEdit(vendor)}><Edit className="h-3.5 w-3.5" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => onDelete(vendor.id)}><Trash2 className="h-3.5 w-3.5" /></Button>
+              <div className="space-y-2">
+                <Label htmlFor="vendor-category">Category</Label>
+                <Input
+                  id="vendor-category"
+                  name="category"
+                  list="vendor-categories"
+                  placeholder="e.g. Florist"
+                  required
+                />
+                <datalist id="vendor-categories">
+                  {CATEGORY_SUGGESTIONS.map((category) => (
+                    <option key={category} value={category} />
+                  ))}
+                </datalist>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vendor-contact">Contact person</Label>
+                <Input id="vendor-contact" name="contact_name" placeholder="Optional" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vendor-status">Status</Label>
+                <select
+                  id="vendor-status"
+                  name="status"
+                  defaultValue="researching"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {COLUMNS.map((column) => (
+                    <option key={column.id} value={column.id}>
+                      {column.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vendor-email">Email</Label>
+                <Input id="vendor-email" name="email" type="email" placeholder="Optional" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vendor-phone">Phone</Label>
+                <Input id="vendor-phone" name="phone" placeholder="Optional" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vendor-website">Website</Label>
+                <Input id="vendor-website" name="website" placeholder="https://…" />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vendor-quote">Quote (USD)</Label>
+                <Input id="vendor-quote" name="quote_amount" type="number" min={0} step={10} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vendor-rating">Rating (1–5)</Label>
+                <Input id="vendor-rating" name="rating" type="number" min={1} max={5} />
               </div>
             </div>
-          )}
+            <div className="space-y-2">
+              <Label htmlFor="vendor-notes">Notes</Label>
+              <Textarea id="vendor-notes" name="notes" rows={3} placeholder="Optional" />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Add vendor
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+  hint,
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  hint?: string
+}) {
+  return (
+    <Card>
+      <CardContent className="flex items-start gap-3 p-5">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="truncate text-xl font-bold">{value}</p>
+          {hint ? <p className="truncate text-xs text-muted-foreground">{hint}</p> : null}
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
+
+function VendorColumn({
+  column,
+  eventId,
+  vendors,
+  onStatusChange,
+}: {
+  column: { id: string; label: string; accent: string }
+  eventId: string
+  vendors: Vendor[]
+  onStatusChange: (vendorId: string, status: string) => void
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: `column-${column.id}` })
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={cn(
+        "flex min-h-[220px] flex-col rounded-2xl border bg-muted/40 p-3 transition-colors",
+        isOver && "border-primary bg-primary/5"
+      )}
+    >
+      <div className="mb-3 flex items-center justify-between px-1">
+        <div className="flex items-center gap-2">
+          <span className={cn("h-2 w-2 rounded-full", column.accent)} />
+          <span className="text-sm font-semibold">{column.label}</span>
+        </div>
+        <span className="rounded-full bg-background px-2 py-0.5 text-xs text-muted-foreground">
+          {vendors.length}
+        </span>
+      </div>
+      <div className="flex flex-1 flex-col gap-2">
+        {vendors.map((vendor) => (
+          <VendorCard
+            key={vendor.id}
+            vendor={vendor}
+            eventId={eventId}
+            onStatusChange={onStatusChange}
+          />
+        ))}
+        {vendors.length === 0 ? (
+          <div className="flex flex-1 items-center justify-center rounded-xl border border-dashed p-4 text-center text-xs text-muted-foreground">
+            Drop vendors here
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+function VendorCard({
+  vendor,
+  eventId,
+  onStatusChange,
+}: {
+  vendor: Vendor
+  eventId: string
+  onStatusChange: (vendorId: string, status: string) => void
+}) {
+  const router = useRouter()
+  const { toast } = useToast()
+  const [editOpen, setEditOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: vendor.id,
+  })
+
+  const style = transform
+    ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)` }
+    : undefined
+
+  async function handleUpdate(formData: FormData) {
+    setPending(true)
+    try {
+      await updateVendor(vendor.id, eventId, formData)
+      setEditOpen(false)
+      toast({ title: "Vendor updated" })
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Could not update vendor",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Delete "${vendor.name}"?`)) return
+    try {
+      await deleteVendor(vendor.id, eventId)
+      toast({ title: "Vendor deleted" })
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Could not delete vendor",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    }
+  }
+
+  return (
+    <>
+      <Card
+        ref={setNodeRef}
+        style={style}
+        className={cn(
+          "group bg-card shadow-sm transition-shadow hover:shadow-md",
+          isDragging && "opacity-40"
+        )}
+      >
+        <CardContent className="space-y-2 p-3">
+          <div className="flex items-start justify-between gap-1">
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold">{vendor.name}</p>
+              <p className="truncate text-xs text-muted-foreground">{vendor.category}</p>
+            </div>
+            <button
+              type="button"
+              className="cursor-grab touch-none rounded p-1 text-muted-foreground hover:bg-accent active:cursor-grabbing"
+              aria-label="Drag vendor"
+              {...attributes}
+              {...listeners}
+            >
+              <GripVertical className="h-4 w-4" />
+            </button>
+          </div>
+
+          {vendor.rating ? (
+            <div className="flex items-center gap-0.5">
+              {Array.from({ length: 5 }).map((_, index) => (
+                <Star
+                  key={index}
+                  className={cn(
+                    "h-3 w-3",
+                    index < Number(vendor.rating)
+                      ? "fill-amber-400 text-amber-400"
+                      : "text-muted-foreground/40"
+                  )}
+                />
+              ))}
+            </div>
+          ) : null}
+
+          {vendor.quote_amount ? (
+            <p className="text-sm font-medium">{formatCurrency(Number(vendor.quote_amount))}</p>
+          ) : null}
+
+          <div className="space-y-1 text-xs text-muted-foreground">
+            {vendor.contact_name ? <p className="truncate">{vendor.contact_name}</p> : null}
+            {vendor.email ? (
+              <a
+                href={`mailto:${vendor.email}`}
+                className="flex items-center gap-1 truncate hover:text-foreground"
+              >
+                <Mail className="h-3 w-3 shrink-0" />
+                <span className="truncate">{vendor.email}</span>
+              </a>
+            ) : null}
+            {vendor.phone ? (
+              <a
+                href={`tel:${vendor.phone}`}
+                className="flex items-center gap-1 hover:text-foreground"
+              >
+                <Phone className="h-3 w-3 shrink-0" />
+                {vendor.phone}
+              </a>
+            ) : null}
+            {vendor.website ? (
+              <a
+                href={vendor.website}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1 truncate hover:text-foreground"
+              >
+                <Globe className="h-3 w-3 shrink-0" />
+                <span className="truncate">Website</span>
+              </a>
+            ) : null}
+          </div>
+
+          {vendor.notes ? (
+            <p className="line-clamp-2 rounded-md bg-muted/60 p-2 text-xs text-muted-foreground">
+              {vendor.notes}
+            </p>
+          ) : null}
+
+          <div className="flex items-center justify-between border-t pt-2">
+            <select
+              value={vendor.status}
+              onChange={(event) => onStatusChange(vendor.id, event.target.value)}
+              className="h-7 rounded-md border border-input bg-background px-1 text-xs capitalize"
+              aria-label="Vendor status"
+            >
+              {COLUMNS.map((column) => (
+                <option key={column.id} value={column.id}>
+                  {column.label}
+                </option>
+              ))}
+            </select>
+            <div className="flex items-center">
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-3.5 w-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleDelete}>
+                <Trash2 className="h-3.5 w-3.5 text-red-600" />
+              </Button>
+            </div>
+          </div>
         </CardContent>
       </Card>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle>Edit vendor</DialogTitle>
+          </DialogHeader>
+          <form action={handleUpdate} className="space-y-4">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`name-${vendor.id}`}>Vendor name</Label>
+                <Input id={`name-${vendor.id}`} name="name" defaultValue={vendor.name} required />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`category-${vendor.id}`}>Category</Label>
+                <Input
+                  id={`category-${vendor.id}`}
+                  name="category"
+                  defaultValue={vendor.category}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`contact-${vendor.id}`}>Contact person</Label>
+                <Input
+                  id={`contact-${vendor.id}`}
+                  name="contact_name"
+                  defaultValue={vendor.contact_name || ""}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`status-${vendor.id}`}>Status</Label>
+                <select
+                  id={`status-${vendor.id}`}
+                  name="status"
+                  defaultValue={vendor.status}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  {COLUMNS.map((column) => (
+                    <option key={column.id} value={column.id}>
+                      {column.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`email-${vendor.id}`}>Email</Label>
+                <Input
+                  id={`email-${vendor.id}`}
+                  name="email"
+                  type="email"
+                  defaultValue={vendor.email || ""}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`phone-${vendor.id}`}>Phone</Label>
+                <Input id={`phone-${vendor.id}`} name="phone" defaultValue={vendor.phone || ""} />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`website-${vendor.id}`}>Website</Label>
+                <Input
+                  id={`website-${vendor.id}`}
+                  name="website"
+                  defaultValue={vendor.website || ""}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`quote-${vendor.id}`}>Quote (USD)</Label>
+                <Input
+                  id={`quote-${vendor.id}`}
+                  name="quote_amount"
+                  type="number"
+                  min={0}
+                  step={10}
+                  defaultValue={vendor.quote_amount ?? ""}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`rating-${vendor.id}`}>Rating (1–5)</Label>
+                <Input
+                  id={`rating-${vendor.id}`}
+                  name="rating"
+                  type="number"
+                  min={1}
+                  max={5}
+                  defaultValue={vendor.rating ?? ""}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`notes-${vendor.id}`}>Notes</Label>
+              <Textarea
+                id={`notes-${vendor.id}`}
+                name="notes"
+                rows={3}
+                defaultValue={vendor.notes || ""}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </>
+  )
+}
+
+function VendorCardPreview({ vendor }: { vendor: Vendor }) {
+  return (
+    <div className="w-64 rotate-2 rounded-xl border bg-card p-3 shadow-2xl">
+      <p className="text-sm font-semibold">{vendor.name}</p>
+      <p className="text-xs text-muted-foreground">{vendor.category}</p>
+      {vendor.quote_amount ? (
+        <p className="mt-2 text-sm font-medium">{formatCurrency(Number(vendor.quote_amount))}</p>
+      ) : null}
     </div>
   )
 }

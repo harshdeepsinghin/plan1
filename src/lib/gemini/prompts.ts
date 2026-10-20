@@ -1,7 +1,7 @@
 import { EventType, AiTheme, ColorPalette } from '@/types/database'
 
 interface EventContext {
-  event_type: EventType
+  event_type: EventType | string
   title: string
   event_date: string
   venue?: string

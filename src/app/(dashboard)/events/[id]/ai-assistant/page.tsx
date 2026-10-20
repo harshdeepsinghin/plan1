@@ -1,24 +1,34 @@
+import { notFound } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { getEvent } from "@/actions/event"
 import { AIAssistantClient } from "./ai-assistant-client"
-import { redirect } from "next/navigation"
 
 interface Props {
   params: Promise<{ id: string }>
   searchParams: Promise<{ action?: string }>
 }
 
-export default async function AIAssistantPageWrapper({ params, searchParams }: Props) {
+export default async function AIAssistantPage({ params, searchParams }: Props) {
   const { id } = await params
+  const { action } = await searchParams
+  const event = await getEvent(id)
+
+  if (!event) notFound()
+
   const supabase = await createClient()
-  
-  const { data: event } = await supabase.from('events').select('*').eq('id', id).single()
-  if (!event) redirect("/dashboard")
+  const { data: ideas } = await supabase
+    .from("ai_ideas")
+    .select("*")
+    .eq("event_id", id)
+    .order("created_at", { ascending: false })
+    .limit(30)
 
-  const { data: aiIdeas } = await supabase
-    .from('ai_ideas')
-    .select('*')
-    .eq('event_id', id)
-    .order('created_at', { ascending: false })
-
-  return <AIAssistantClient params={params} initialData={{ event, aiIdeas: aiIdeas || [] }} searchParams={searchParams} />
+  return (
+    <AIAssistantClient
+      eventId={id}
+      event={event}
+      initialIdeas={ideas || []}
+      initialAction={action}
+    />
+  )
 }

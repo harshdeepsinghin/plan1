@@ -41,5 +41,13 @@ next-env.d.ts
 # misc folder
 misc/
 
+# local tooling artifacts
+.playwright-mcp/
+landing.png
+
+# supabase CLI local state
+supabase/.temp/
+
 .env_gemini_key
 client_secret_*.json
+.env*

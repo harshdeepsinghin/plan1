@@ -1,329 +1,441 @@
-import { getEvent } from "@/actions/event"
-import { createClient } from "@/lib/supabase/server"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
-import { Progress } from "@/components/ui/progress"
-import { Badge } from "@/components/ui/badge"
-import { Separator } from "@/components/ui/separator"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { 
-  Calendar, DollarSign, Users, Truck, ClipboardList, Bot, 
-  TrendingUp, AlertCircle, CheckCircle, Clock, Star 
-} from "lucide-react"
-import { formatCurrency, formatDate, getDaysUntil, getEventTypeLabel, cn, getStatusColor } from "@/lib/utils"
 import Link from "next/link"
 import { notFound } from "next/navigation"
+import { createClient } from "@/lib/supabase/server"
+import { getEvent } from "@/actions/event"
+import { Button } from "@/components/ui/button"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
+import { Separator } from "@/components/ui/separator"
+import {
+  CalendarDays,
+  DollarSign,
+  Users,
+  Truck,
+  ClipboardList,
+  Bot,
+  MapPin,
+  Sparkles,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  ExternalLink,
+  ListChecks,
+  CalendarPlus,
+  Palette,
+} from "lucide-react"
+import {
+  cn,
+  formatCurrency,
+  formatDate,
+  getDaysUntil,
+  getEventTypeLabel,
+  getStatusColor,
+  getPriorityColor,
+  getPriorityLabel,
+  getThemeColors,
+  getThemeKeywords,
+} from "@/lib/utils"
 
 interface Props {
   params: Promise<{ id: string }>
 }
 
+function googleCalendarUrl(event: any) {
+  const date = String(event.event_date).replace(/-/g, "")
+  const next = new Date(event.event_date)
+  next.setDate(next.getDate() + 1)
+  const endDate = next.toISOString().split("T")[0].replace(/-/g, "")
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: event.title,
+    dates: `${date}/${endDate}`,
+    details: `Planned with EventPlanner.${event.venue ? ` Venue: ${event.venue}` : ""}`,
+    location: event.venue || "",
+  })
+  return `https://calendar.google.com/calendar/render?${params.toString()}`
+}
+
 export default async function EventOverviewPage({ params }: Props) {
   const { id } = await params
   const event = await getEvent(id)
-  
   if (!event) notFound()
 
   const supabase = await createClient()
-  
-  // Fetch summary data
-  const [
-    { count: budgetCategoriesCount },
-    { count: milestonesCount },
-    { count: completedMilestones },
-    { count: vendorsCount },
-    { count: bookedVendors },
-    { count: guestsCount },
-    { count: rsvpYesCount },
-    { count: tasksCount },
-    { count: completedTasks },
-    { data: recentMilestones },
-    { data: upcomingTasks },
-  ] = await Promise.all([
-    supabase.from('budget_categories').select('*', { count: 'exact', head: true }).eq('event_id', id),
-    supabase.from('milestones').select('*', { count: 'exact', head: true }).eq('event_id', id),
-    supabase.from('milestones').select('*', { count: 'exact', head: true }).eq('event_id', id).eq('completed', true),
-    supabase.from('vendors').select('*', { count: 'exact', head: true }).eq('event_id', id),
-    supabase.from('vendors').select('*', { count: 'exact', head: true }).eq('event_id', id).eq('status', 'booked'),
-    supabase.from('guests').select('*', { count: 'exact', head: true }).eq('event_id', id),
-    supabase.from('guests').select('*', { count: 'exact', head: true }).eq('event_id', id).eq('rsvp_status', 'yes'),
-    supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('event_id', id),
-    supabase.from('tasks').select('*', { count: 'exact', head: true }).eq('event_id', id).eq('status', 'done'),
-    supabase.from('milestones').select('*').eq('event_id', id).eq('completed', false).order('due_date', { ascending: true }).limit(5),
-    supabase.from('tasks').select('*').eq('event_id', id).eq('status', 'todo').order('due_date', { ascending: true }).limit(5),
-  ])
+  const [categoriesResult, milestonesResult, vendorsResult, guestsResult, tasksResult] =
+    await Promise.all([
+      supabase.from("budget_categories").select("*, budget_items(*)").eq("event_id", id),
+      supabase
+        .from("milestones")
+        .select("*")
+        .eq("event_id", id)
+        .order("due_date", { ascending: true }),
+      supabase.from("vendors").select("*").eq("event_id", id),
+      supabase.from("guests").select("*").eq("event_id", id),
+      supabase.from("tasks").select("*").eq("event_id", id),
+    ])
 
+  const categories = categoriesResult.data || []
+  const milestones = milestonesResult.data || []
+  const vendors = vendorsResult.data || []
+  const guests = guestsResult.data || []
+  const tasks = tasksResult.data || []
+
+  const spent = categories.reduce(
+    (sum, category) =>
+      sum +
+      (category.budget_items || []).reduce(
+        (categorySum: number, item: any) => categorySum + Number(item.actual_cost || 0),
+        0
+      ),
+    0
+  )
+  const budget = Number(event.budget_total) || 0
+  const budgetPercent = budget > 0 ? Math.min(100, Math.round((spent / budget) * 100)) : 0
+
+  const attending = guests.filter((guest) => guest.rsvp_status === "yes")
+  const headcount = attending.length + attending.filter((guest) => guest.plus_one).length
+  const bookedVendors = vendors.filter((vendor) => vendor.status === "booked")
+  const completedMilestones = milestones.filter((milestone) => milestone.completed)
+  const completedTasks = tasks.filter((task) => task.status === "done")
+  const upcomingMilestones = milestones
+    .filter((milestone) => !milestone.completed)
+    .slice(0, 4)
   const daysLeft = getDaysUntil(event.event_date)
-  const isOverdue = daysLeft < 0
-  const budgetPercent = event.budget_total > 0 ? Math.min((event.budget_spent / event.budget_total) * 100, 100) : 0
-  const milestonesPercent = milestonesCount && milestonesCount > 0 ? Math.round((completedMilestones || 0) / milestonesCount * 100) : 0
-  const vendorsPercent = vendorsCount && vendorsCount > 0 ? Math.round((bookedVendors || 0) / vendorsCount * 100) : 0
-  const rsvpPercent = guestsCount && guestsCount > 0 ? Math.round((rsvpYesCount || 0) / guestsCount * 100) : 0
-  const tasksPercent = tasksCount && tasksCount > 0 ? Math.round((completedTasks || 0) / tasksCount * 100) : 0
+
+  const theme = event.ai_generated_theme
+  const palette = getThemeColors(theme)
+  const themeKeywords = getThemeKeywords(theme)
+  const budgetPercentOfTotal =
+    budget > 0 ? Math.min(100, Math.round((spent / budget) * 100)) : 0
+
+  const sections = [
+    {
+      href: `/events/${id}/budget`,
+      label: "Budget",
+      icon: DollarSign,
+      detail: `${formatCurrency(spent)} of ${formatCurrency(budget)} spent`,
+      percent: budgetPercentOfTotal,
+    },
+    {
+      href: `/events/${id}/timeline`,
+      label: "Timeline",
+      icon: CalendarDays,
+      detail: `${completedMilestones.length}/${milestones.length} milestones done`,
+      percent:
+        milestones.length > 0
+          ? Math.round((completedMilestones.length / milestones.length) * 100)
+          : 0,
+    },
+    {
+      href: `/events/${id}/vendors`,
+      label: "Vendors",
+      icon: Truck,
+      detail: `${bookedVendors.length}/${vendors.length} booked`,
+      percent:
+        vendors.length > 0 ? Math.round((bookedVendors.length / vendors.length) * 100) : 0,
+    },
+    {
+      href: `/events/${id}/guests`,
+      label: "Guests",
+      icon: Users,
+      detail: `${headcount} attending · ${guests.length} invitation${guests.length === 1 ? "" : "s"}`,
+      percent:
+        guests.length > 0 ? Math.round((attending.length / guests.length) * 100) : 0,
+    },
+    {
+      href: `/events/${id}/tasks`,
+      label: "Tasks",
+      icon: ClipboardList,
+      detail: `${completedTasks.length}/${tasks.length} completed`,
+      percent:
+        tasks.length > 0 ? Math.round((completedTasks.length / tasks.length) * 100) : 0,
+    },
+    {
+      href: `/events/${id}/ai-assistant`,
+      label: "AI Assistant",
+      icon: Bot,
+      detail: "Generate themes, speeches, and plans",
+      percent: null,
+    },
+  ]
 
   return (
-    <div className="space-y-6 p-6">
+    <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-3">
-            <span className={cn("px-3 py-1 rounded-full text-sm font-medium", getStatusColor(event.status))}>
-              {event.status}
-            </span>
-            <Badge variant="secondary" className="capitalize">{getEventTypeLabel(event.event_type)}</Badge>
+      <section className="relative overflow-hidden rounded-3xl border bg-gradient-to-br from-primary/15 via-primary/5 to-background p-6 sm:p-8">
+        <div className="pointer-events-none absolute -right-20 -top-20 h-64 w-64 rounded-full bg-primary/20 blur-3xl" />
+        <div className="relative flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary" className="capitalize">
+                {getEventTypeLabel(event.event_type)}
+              </Badge>
+              <span
+                className={cn(
+                  "rounded-full px-2.5 py-0.5 text-xs font-medium capitalize",
+                  getStatusColor(event.status)
+                )}
+              >
+                {event.status}
+              </span>
+            </div>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight sm:text-4xl">{event.title}</h1>
+            <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1.5">
+                <CalendarDays className="h-4 w-4" />
+                {formatDate(event.event_date)}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <MapPin className="h-4 w-4" />
+                {event.venue || "Venue to be decided"}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <Users className="h-4 w-4" />
+                {event.guest_count || 0} guests
+              </span>
+            </div>
           </div>
-          <h1 className="text-3xl font-bold mt-2">{event.title}</h1>
-          <p className="text-muted-foreground mt-1">
-            {formatDate(event.event_date)} • {event.venue || "Venue not set"} • {daysLeft >= 0 ? `${daysLeft} days remaining` : "Event completed"}
-          </p>
+
+          <div className="flex shrink-0 flex-col items-center gap-2 rounded-2xl border bg-background/80 p-5 text-center backdrop-blur">
+            <p className="text-4xl font-bold text-primary">
+              {daysLeft >= 0 ? daysLeft : 0}
+            </p>
+            <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              {daysLeft > 0 ? "days to go" : daysLeft === 0 ? "it's today!" : "event passed"}
+            </p>
+            <Button asChild size="sm" className="mt-1">
+              <a href={googleCalendarUrl(event)} target="_blank" rel="noopener noreferrer">
+                <CalendarPlus className="mr-1.5 h-4 w-4" />
+                Google Calendar
+              </a>
+            </Button>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Link href={`/events/${id}/settings`}>
-            <Button variant="outline">Settings</Button>
-          </Link>
-          <Button onClick={() => {}}>Share</Button>
-        </div>
-      </div>
+      </section>
 
-      {/* Key Metrics */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-        <MetricCard
-          title="Budget"
-          value={`${formatCurrency(event.budget_spent)} / ${formatCurrency(event.budget_total)}`}
-          subtitle={`${Math.round(budgetPercent)}% used`}
-          icon={DollarSign}
-          progress={budgetPercent}
-          iconColor="text-green-600 bg-green-100"
-        />
-        <MetricCard
-          title="Timeline"
-          value={`${completedMilestones || 0} / ${milestonesCount || 0}`}
-          subtitle={`${milestonesPercent}% complete`}
-          icon={Calendar}
-          progress={milestonesPercent}
-          iconColor="text-blue-600 bg-blue-100"
-        />
-        <MetricCard
-          title="Vendors"
-          value={`${bookedVendors || 0} / ${vendorsCount || 0}`}
-          subtitle={`${vendorsPercent}% booked`}
-          icon={Truck}
-          progress={vendorsPercent}
-          iconColor="text-purple-600 bg-purple-100"
-        />
-        <MetricCard
-          title="Guests"
-          value={`${rsvpYesCount || 0} / ${guestsCount || 0}`}
-          subtitle={`${rsvpPercent}% RSVP'd Yes`}
-          icon={Users}
-          progress={rsvpPercent}
-          iconColor="text-orange-600 bg-orange-100"
-        />
-        <MetricCard
-          title="Tasks"
-          value={`${completedTasks || 0} / ${tasksCount || 0}`}
-          subtitle={`${tasksPercent}% done`}
-          icon={ClipboardList}
-          progress={tasksPercent}
-          iconColor="text-red-600 bg-red-100"
-        />
-      </div>
-
-      {/* Quick Actions & Upcoming */}
-      <div className="grid gap-4 lg:grid-cols-2">
-        {/* Quick Actions */}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Bot className="h-5 w-5" />
-              AI Quick Actions
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="grid gap-3 sm:grid-cols-2">
-            <QuickActionCard
-              title="Generate Theme"
-              description="Get AI-powered theme & color palette"
-              icon={Star}
-              href={`/events/${id}/ai-assistant?action=theme`}
-            />
-            <QuickActionCard
-              title="Smart Budget"
-              description="Auto-generate budget breakdown"
-              icon={DollarSign}
-              href={`/events/${id}/ai-assistant?action=budget`}
-            />
-            <QuickActionCard
-              title="Timeline Generator"
-              description="Create milestones from event date"
-              icon={Calendar}
-              href={`/events/${id}/ai-assistant?action=timeline`}
-            />
-            <QuickActionCard
-              title="Vendor Finder"
-              description="Get vendor suggestions & questions"
-              icon={Truck}
-              href={`/events/${id}/ai-assistant?action=vendors`}
-            />
-            <QuickActionCard
-              title="Activity Ideas"
-              description="Unique entertainment & activities"
-              icon={ClipboardList}
-              href={`/events/${id}/ai-assistant?action=activities`}
-            />
-            <QuickActionCard
-              title="AI Chat Assistant"
-              description="Ask anything about your event"
-              icon={Bot}
-              href={`/events/${id}/ai-assistant`}
-            />
-          </CardContent>
-        </Card>
-
-        {/* Upcoming Milestones & Tasks */}
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Upcoming Milestones
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {recentMilestones && recentMilestones.length > 0 ? (
-                <ul className="space-y-3">
-                  {recentMilestones.slice(0, 5).map((m: any) => (
-                    <li key={m.id} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                      <div className={cn("flex-shrink-0 w-2 h-2 rounded-full mt-2", m.priority === 1 && "bg-red-500", m.priority === 2 && "bg-yellow-500", m.priority === 3 && "bg-green-500")} />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium">{m.title}</p>
-                        <p className="text-sm text-muted-foreground">{formatDate(m.due_date)} • {m.category}</p>
-                      </div>
-                      <Badge variant="secondary" className="capitalize">{m.priority === 1 ? "High" : m.priority === 2 ? "Medium" : "Low"}</Badge>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-muted-foreground text-center py-4">No upcoming milestones. <Link href={`/events/${id}/ai-assistant?action=timeline`} className="text-primary hover:underline">Generate timeline</Link></p>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader className="pb-2">
-              <CardTitle className="flex items-center gap-2">
-                <ClipboardList className="h-5 w-5" />
-                Pending Tasks
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              {upcomingTasks && upcomingTasks.length > 0 ? (
-                <ul className="space-y-3">
-                  {upcomingTasks.slice(0, 5).map((t: any) => (
-                    <li key={t.id} className="flex items-start gap-3 p-3 rounded-lg bg-muted/50">
-                      <div className={cn("flex-shrink-0 w-2 h-2 rounded-full mt-2", t.priority === 1 && "bg-red-500", t.priority === 2 && "bg-yellow-500", t.priority === 3 && "bg-green-500")} />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium">{t.title}</p>
-                        {t.due_date && <p className="text-sm text-muted-foreground">Due: {formatDate(t.due_date)}</p>}
-                      </div>
-                      <Badge variant="outline" className="capitalize">{t.status.replace('_', ' ')}</Badge>
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p className="text-muted-foreground text-center py-4">No pending tasks</p>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-      </div>
-
-      {/* AI Theme Preview */}
-      {event.ai_generated_theme && (
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Star className="h-5 w-5" />
-              AI-Generated Theme
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-4 md:grid-cols-3">
-              <div className="md:col-span-2 space-y-2">
-                <h3 className="text-xl font-semibold">{event.ai_generated_theme.theme_name}</h3>
-                <p className="text-muted-foreground">{event.ai_generated_theme.description}</p>
-                <p className="text-sm font-medium">Decor Style: {event.ai_generated_theme.decor_style}</p>
-                <div className="flex flex-wrap gap-1">
-                  {event.ai_generated_theme.mood_board_keywords?.map((k: string) => (
-                    <Badge key={k} variant="outline">{k}</Badge>
-                  ))}
-                </div>
+      {/* AI theme */}
+      {theme?.theme_name ? (
+        <Card className="overflow-hidden">
+          <CardHeader className="pb-3">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <p className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-primary">
+                  <Sparkles className="h-3.5 w-3.5" />
+                  Your AI theme
+                </p>
+                <CardTitle className="mt-1 text-2xl">{theme.theme_name}</CardTitle>
+                {theme.description ? (
+                  <CardDescription className="mt-1 max-w-2xl">{theme.description}</CardDescription>
+                ) : null}
               </div>
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Color Palette</p>
-                <div className="grid gap-2">
-                  {Object.entries(event.ai_generated_theme.color_palette || {}).map(([role, hex]) => (
-                    <div key={role} className="flex items-center gap-3 p-2 rounded-lg bg-muted/50">
-                      <div className="w-8 h-8 rounded border" style={{ backgroundColor: hex }} />
-                      <div>
-                        <p className="font-medium capitalize">{role}</p>
-                        <p className="text-sm text-muted-foreground font-mono">{hex}</p>
-                      </div>
+              <Button asChild variant="outline" size="sm" className="shrink-0">
+                <Link href={`/events/${id}/ai-assistant`}>
+                  <Bot className="mr-1.5 h-4 w-4" />
+                  Regenerate
+                </Link>
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {Array.isArray(palette) && palette.length > 0 ? (
+              <div>
+                <p className="mb-2 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
+                  <Palette className="h-3.5 w-3.5" />
+                  Colour palette
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {palette.map((color: any, index: number) => (
+                    <div
+                      key={index}
+                      className="flex items-center gap-2 rounded-full border bg-card py-1 pl-1 pr-3"
+                      title={color.usage || color.name}
+                    >
+                      <span
+                        className="h-6 w-6 rounded-full border"
+                        style={{ backgroundColor: String(color.hex || "#eee") }}
+                      />
+                      <span className="text-xs">
+                        {color.name ? `${color.name} · ` : ""}
+                        {color.hex}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
+            ) : null}
+            {themeKeywords.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {themeKeywords.map((keyword: string) => (
+                  <Badge key={keyword} variant="secondary">
+                    {keyword}
+                  </Badge>
+                ))}
+              </div>
+            ) : null}
+            {theme.decor_style ? (
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">Decor direction: </span>
+                {theme.decor_style}
+              </p>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-dashed border-primary/40 bg-primary/5">
+          <CardContent className="flex flex-col items-center justify-between gap-4 p-6 sm:flex-row">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                <Sparkles className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="font-semibold">Let Gemini design your theme</p>
+                <p className="text-sm text-muted-foreground">
+                  Get a concept, colour palette, and decor direction in seconds.
+                </p>
+              </div>
             </div>
+            <Button asChild>
+              <Link href={`/events/${id}/ai-assistant?action=theme`}>
+                Generate theme
+                <ArrowRight className="ml-2 h-4 w-4" />
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       )}
-    </div>
-  )
-}
 
-function MetricCard({ title, value, subtitle, icon: Icon, progress, iconColor }: {
-  title: string
-  value: string
-  subtitle: string
-  icon: React.ComponentType<{ className?: string }>
-  progress: number
-  iconColor: string
-}) {
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-start justify-between">
-          <div>
-            <p className="text-sm text-muted-foreground">{title}</p>
-            <p className="text-2xl font-bold mt-1">{value}</p>
-            <p className="text-sm text-muted-foreground">{subtitle}</p>
-          </div>
-          <div className={cn("p-3 rounded-xl", iconColor)}>
-            <Icon className="h-6 w-6" />
-          </div>
-        </div>
-        <Progress value={progress} className="mt-4 h-1.5" />
-      </CardContent>
-    </Card>
-  )
-}
+      {/* Progress cards */}
+      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+        {sections.map((section) => {
+          const Icon = section.icon
+          return (
+            <Link key={section.href} href={section.href}>
+              <Card className="group h-full transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-md">
+                <CardContent className="p-5">
+                  <div className="flex items-start justify-between">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                      <Icon className="h-5 w-5" />
+                    </div>
+                    <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                  </div>
+                  <p className="mt-3 font-semibold">{section.label}</p>
+                  <p className="text-sm text-muted-foreground">{section.detail}</p>
+                  {section.percent !== null ? (
+                    <Progress value={section.percent} className="mt-3 h-1.5" />
+                  ) : null}
+                </CardContent>
+              </Card>
+            </Link>
+          )
+        })}
+      </section>
 
-function QuickActionCard({ title, description, icon: Icon, href }: {
-  title: string
-  description: string
-  icon: React.ComponentType<{ className?: string }>
-  href: string
-}) {
-  return (
-    <Link href={href} className="p-4 rounded-lg border hover:bg-accent transition-colors group">
-      <div className="flex items-start gap-3">
-        <div className="p-2 rounded-lg bg-primary/10 text-primary">
-          <Icon className="h-5 w-5" />
-        </div>
-        <div>
-          <h4 className="font-medium group-hover:text-primary transition-colors">{title}</h4>
-          <p className="text-sm text-muted-foreground">{description}</p>
-        </div>
+      {/* Bottom grid */}
+      <div className="grid gap-4 lg:grid-cols-3">
+        <Card className="lg:col-span-2">
+          <CardHeader className="flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base">Coming up</CardTitle>
+              <CardDescription>Next milestones on your timeline</CardDescription>
+            </div>
+            <Button asChild variant="ghost" size="sm">
+              <Link href={`/events/${id}/timeline`}>
+                View all
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </Link>
+            </Button>
+          </CardHeader>
+          <CardContent>
+            {upcomingMilestones.length === 0 ? (
+              <div className="flex flex-col items-center justify-center gap-2 py-8 text-center text-sm text-muted-foreground">
+                <CheckCircle2 className="h-8 w-8 text-emerald-500" />
+                Everything is done — or add milestones to get started.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {upcomingMilestones.map((milestone) => {
+                  const days = getDaysUntil(milestone.due_date)
+                  return (
+                    <div
+                      key={milestone.id}
+                      className="flex items-center gap-3 rounded-xl border p-3"
+                    >
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                        <Clock className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{milestone.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {formatDate(milestone.due_date)} ·{" "}
+                          {days < 0
+                            ? `${Math.abs(days)} days overdue`
+                            : days === 0
+                              ? "today"
+                              : `in ${days} days`}
+                        </p>
+                      </div>
+                      <Badge
+                        variant="secondary"
+                        className={cn("shrink-0", getPriorityColor(milestone.priority))}
+                      >
+                        {getPriorityLabel(milestone.priority)}
+                      </Badge>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Google tools</CardTitle>
+            <CardDescription>Everything connected to your plan</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            <Button asChild variant="outline" className="w-full justify-start">
+              <a href={googleCalendarUrl(event)} target="_blank" rel="noopener noreferrer">
+                <CalendarPlus className="mr-2 h-4 w-4 text-primary" />
+                Add to Google Calendar
+                <ExternalLink className="ml-auto h-3.5 w-3.5" />
+              </a>
+            </Button>
+            {event.venue ? (
+              <Button asChild variant="outline" className="w-full justify-start">
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.venue)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <MapPin className="mr-2 h-4 w-4 text-primary" />
+                  Directions on Google Maps
+                  <ExternalLink className="ml-auto h-3.5 w-3.5" />
+                </a>
+              </Button>
+            ) : null}
+            <Button asChild variant="outline" className="w-full justify-start">
+              <Link href={`/events/${id}/ai-assistant`}>
+                <Sparkles className="mr-2 h-4 w-4 text-primary" />
+                Google Gemini assistant
+                <ArrowRight className="ml-auto h-3.5 w-3.5" />
+              </Link>
+            </Button>
+            <Separator className="my-2" />
+            <div className="space-y-1.5 text-xs text-muted-foreground">
+              <p className="flex items-center gap-1.5">
+                <ListChecks className="h-3.5 w-3.5" />
+                {completedTasks.length}/{tasks.length} tasks complete
+              </p>
+              <p className="flex items-center gap-1.5">
+                <DollarSign className="h-3.5 w-3.5" />
+                {formatCurrency(spent)} spent · {budgetPercent}% used
+              </p>
+            </div>
+          </CardContent>
+        </Card>
       </div>
-    </Link>
+    </div>
   )
 }

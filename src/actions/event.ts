@@ -5,93 +5,124 @@ import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
 import { createEventSchema, updateEventSchema } from '@/lib/validations/event'
 import { generateJSON } from '@/lib/gemini/client'
-import { buildThemePrompt, buildTimelinePrompt, buildBudgetBreakdownPrompt, buildVendorSuggestionsPrompt, buildActivityIdeasPrompt, buildChecklistPrompt } from '@/lib/gemini/prompts'
+import {
+  buildThemePrompt,
+  buildTimelinePrompt,
+  buildBudgetBreakdownPrompt,
+} from '@/lib/gemini/prompts'
 
 export async function createEvent(formData: FormData) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
   if (!user) redirect('/auth/login')
 
-  const rawData = {
-    title: formData.get('title'),
-    event_type: formData.get('event_type'),
-    event_date: formData.get('event_date'),
-    venue: formData.get('venue') || null,
-    guest_count: formData.get('guest_count') || 0,
-    budget_total: formData.get('budget_total') || 0,
-  }
-
+  const rawData = Object.fromEntries(formData.entries())
   const validated = createEventSchema.parse(rawData)
 
   const { data: event, error } = await supabase
     .from('events')
     .insert({
-      ...validated,
-      user_id: user.id,
+      title: validated.title,
+      event_type: validated.event_type,
+      event_date: validated.event_date,
+      venue: validated.venue ?? null,
       guest_count: validated.guest_count,
       budget_total: validated.budget_total,
+      user_id: user.id,
     })
     .select()
     .single()
 
   if (error) throw new Error(error.message)
 
-  // Generate AI-powered initial data in background
-  generateInitialAIData(event.id, validated)
+  // Generate the first wave of AI planning data. Failures are non-fatal so a
+  // temporary AI outage never blocks event creation.
+  await generateInitialAIData(event.id, {
+    ...validated,
+    venue: validated.venue ?? undefined,
+  })
 
   revalidatePath('/dashboard')
-  redirect(`/events/${event.id}`)
+  redirect(`/events/${event.id}/overview`)
 }
 
-async function generateInitialAIData(eventId: string, eventData: any) {
+interface InitialEventData {
+  title: string
+  event_type: string
+  event_date: string
+  venue?: string | null
+  guest_count: number
+  budget_total: number
+}
+
+async function generateInitialAIData(eventId: string, eventData: InitialEventData) {
   const supabase = await createClient()
   const context = {
     event_type: eventData.event_type,
     title: eventData.title,
     event_date: eventData.event_date,
-    venue: eventData.venue,
+    venue: eventData.venue || undefined,
     guest_count: eventData.guest_count,
     budget_total: eventData.budget_total,
     budget_spent: 0,
   }
 
   try {
-    // Generate theme
-    const theme = await generateJSON(buildThemePrompt(context))
-    await supabase.from('events').update({ ai_generated_theme: theme }).eq('id', eventId)
-    await supabase.from('ai_ideas').insert({
-      event_id: eventId,
-      idea_type: 'theme',
-      content: theme,
-      prompt_used: 'theme_generation',
-    })
+    const [themeResult, timelineResult, budgetResult] = await Promise.allSettled([
+      generateJSON<any>(buildThemePrompt(context)),
+      generateJSON<any>(buildTimelinePrompt(context)),
+      generateJSON<any>(buildBudgetBreakdownPrompt(context)),
+    ])
 
-    // Generate timeline
-    const timeline = await generateJSON(buildTimelinePrompt(context))
-    if (timeline.milestones?.length) {
-      await supabase.from('milestones').insert(
-        timeline.milestones.map((m: any, i: number) => ({
-          ...m,
-          event_id: eventId,
-          sort_order: i,
-        }))
-      )
+    if (themeResult.status === 'fulfilled' && themeResult.value) {
+      const theme = themeResult.value
+      await supabase.from('events').update({ ai_generated_theme: theme }).eq('id', eventId)
+      await supabase.from('ai_ideas').insert({
+        event_id: eventId,
+        idea_type: 'theme',
+        content: theme,
+        prompt_used: 'theme_generation',
+      })
     }
 
-    // Generate budget categories
-    const budget = await generateJSON(buildBudgetBreakdownPrompt(context))
-    if (budget.categories?.length) {
-      const categories = await supabase.from('budget_categories').insert(
-        budget.categories.map((c: any, i: number) => ({
+    if (timelineResult.status === 'fulfilled' && timelineResult.value?.milestones?.length) {
+      const timeline = timelineResult.value
+      await supabase.from('milestones').insert(
+        timeline.milestones.slice(0, 20).map((milestone: any, index: number) => ({
           event_id: eventId,
-          name: c.name,
-          allocated: c.amount || Math.round(eventData.budget_total * (c.percentage / 100)),
-          sort_order: i,
+          title: String(milestone.title || `Milestone ${index + 1}`).slice(0, 100),
+          description: milestone.description ? String(milestone.description).slice(0, 500) : null,
+          due_date: milestone.due_date || eventData.event_date,
+          category: ['booking', 'payments', 'design', 'logistics', 'other'].includes(milestone.category)
+            ? milestone.category
+            : 'other',
+          priority: [1, 2, 3].includes(Number(milestone.priority)) ? Number(milestone.priority) : 2,
+          sort_order: index,
         }))
-      ).select()
-      
-      // Store budget breakdown as AI idea
+      )
+      await supabase.from('ai_ideas').insert({
+        event_id: eventId,
+        idea_type: 'timeline',
+        content: timeline,
+        prompt_used: 'timeline_generation',
+      })
+    }
+
+    if (budgetResult.status === 'fulfilled' && budgetResult.value?.categories?.length) {
+      const budget = budgetResult.value
+      await supabase.from('budget_categories').insert(
+        budget.categories.slice(0, 16).map((category: any, index: number) => ({
+          event_id: eventId,
+          name: String(category.name || `Category ${index + 1}`).slice(0, 50),
+          allocated:
+            Number(category.amount) ||
+            Math.round((eventData.budget_total * (Number(category.percentage) || 10)) / 100),
+          sort_order: index,
+        }))
+      )
       await supabase.from('ai_ideas').insert({
         event_id: eventId,
         idea_type: 'budget_breakdown',
@@ -99,44 +130,17 @@ async function generateInitialAIData(eventId: string, eventData: any) {
         prompt_used: 'budget_breakdown',
       })
     }
-
-    // Generate vendor suggestions
-    const vendors = await generateJSON(buildVendorSuggestionsPrompt(context))
-    await supabase.from('ai_ideas').insert({
-      event_id: eventId,
-      idea_type: 'vendor_suggestions',
-      content: vendors,
-      prompt_used: 'vendor_suggestions',
-    })
-
-    // Generate activities
-    const activities = await generateJSON(buildActivityIdeasPrompt(context))
-    await supabase.from('ai_ideas').insert({
-      event_id: eventId,
-      idea_type: 'activities',
-      content: activities,
-      prompt_used: 'activity_ideas',
-    })
-
-    // Generate checklist
-    const checklist = await generateJSON(buildChecklistPrompt(context))
-    await supabase.from('ai_ideas').insert({
-      event_id: eventId,
-      idea_type: 'checklist',
-      content: checklist,
-      prompt_used: 'checklist',
-    })
-
   } catch (error) {
-    console.error('AI generation error:', error)
-    // Fail silently - user can regenerate later
+    console.error('Initial AI generation failed:', error)
   }
 }
 
 export async function updateEvent(eventId: string, formData: FormData) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
   if (!user) throw new Error('Unauthorized')
 
   const rawData = Object.fromEntries(formData.entries())
@@ -150,13 +154,18 @@ export async function updateEvent(eventId: string, formData: FormData) {
 
   if (error) throw new Error(error.message)
 
+  revalidatePath('/dashboard')
   revalidatePath(`/events/${eventId}`)
+  revalidatePath(`/events/${eventId}/overview`)
+  revalidatePath(`/events/${eventId}/settings`)
 }
 
 export async function deleteEvent(eventId: string) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
   if (!user) throw new Error('Unauthorized')
 
   const { error } = await supabase
@@ -173,8 +182,10 @@ export async function deleteEvent(eventId: string) {
 
 export async function getEvents() {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
   if (!user) return []
 
   const { data, error } = await supabase
@@ -189,17 +200,19 @@ export async function getEvents() {
 
 export async function getEvent(eventId: string) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+
   if (!user) return null
 
+  // Owners (and collaborators, through RLS) can read the event by id.
   const { data, error } = await supabase
     .from('events')
     .select('*')
     .eq('id', eventId)
-    .or(`user_id.eq.${user.id},id.in.(select event_id from event_collaborators where user_id = '${user.id}' and accepted_at is not null)`)
-    .single()
+    .maybeSingle()
 
-  if (error) return null
+  if (error || !data) return null
   return data
 }

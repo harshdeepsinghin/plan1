@@ -16,7 +16,7 @@ const features = [
   {
     icon: DollarSign,
     title: "Smart Budget Tracker",
-    description: "Auto-generated budget breakdowns with category allocations, real-time tracking, and variance alerts."
+    description: "Auto-generated budget breakdowns with category allocations, live spend tracking, and remaining-budget progress."
   },
   {
     icon: Calendar,
@@ -26,12 +26,12 @@ const features = [
   {
     icon: Truck,
     title: "Vendor Management",
-    description: "Kanban-style vendor pipeline from research to booked, with quotes, ratings, and AI-suggested questions."
+    description: "Kanban-style vendor pipeline from research to booked, with quotes, ratings, contacts, and status tracking."
   },
   {
     icon: Users,
     title: "Guest List & RSVP",
-    description: "Import guests via CSV, track RSVPs, dietary restrictions, plus-ones, and send invitations."
+    description: "Import guests via CSV, track RSVPs, dietary restrictions, and plus-ones, then export your final list."
   },
   {
     icon: ClipboardList,
@@ -54,7 +54,7 @@ const stats = [
   { value: "8", label: "AI Generators" },
   { value: "100%", label: "Free Tier" },
   { value: "∞", label: "Events" },
-  { value: "Real-time", label: "Collaboration" },
+  { value: "2", label: "Collaborator Roles" },
 ]
 
 export default function LandingPage() {
@@ -141,7 +141,7 @@ export default function LandingPage() {
               { step: "01", title: "Create Event", desc: "Enter event type, date, budget, and guest count. AI instantly generates a personalized theme, timeline, and budget breakdown." },
               { step: "02", title: "Customize with AI", desc: "Use 8 specialized AI generators for themes, colors, vendors, activities, checklists, speeches, and more." },
               { step: "03", title: "Manage & Collaborate", desc: "Track budget, vendors, guests, and tasks. Invite co-planners with editor or viewer roles." },
-              { step: "04", title: "Execute & Celebrate", desc: "Export summaries, share read-only links with guests, and enjoy your perfectly planned event!" },
+              { step: "04", title: "Execute & Celebrate", desc: "Export guest, budget, and timeline CSVs, add the date to Google Calendar, and get venue directions in Google Maps." },
             ].map((item, i) => (
               <div key={i} className="relative">
                 <div className="absolute left-1/2 -translate-x-1/2 top-0 w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-lg">
@@ -170,7 +170,7 @@ export default function LandingPage() {
             {[
               { name: "Next.js + Vercel", desc: "Frontend & hosting", free: "Unlimited personal projects, 100GB bandwidth" },
               { name: "Supabase (PostgreSQL)", desc: "Database & Auth", free: "500MB DB, unlimited users, OAuth, RLS" },
-              { name: "Google Gemini API", desc: "Generative AI", free: "1,500 requests/day (gemini-1.5-flash)" },
+              { name: "Google Gemini API", desc: "Generative AI", free: "Gemini 3.6 Flash · free AI Studio tier" },
             ].map((tech, i) => (
               <Card key={i} className="text-center p-6">
                 <h3 className="text-xl font-semibold mb-2">{tech.name}</h3>
@@ -191,8 +191,8 @@ export default function LandingPage() {
             <CardContent className="p-8 lg:p-12">
               <h2 className="text-3xl lg:text-4xl font-bold mb-4">Ready to Plan Your Perfect Event?</h2>
               <p className="text-lg opacity-90 mb-8">
-                Join thousands of planners using AI to create unforgettable celebrations. 
-                Free forever on generous tiers.
+                Turn your next wedding, birthday, or community gathering into a plan you can
+                actually follow — powered by Gemini and free to try.
               </p>
               <Link href="/auth/signup">
                 <Button size="lg" className="bg-primary-foreground text-primary hover:bg-primary-foreground/90 gap-2">

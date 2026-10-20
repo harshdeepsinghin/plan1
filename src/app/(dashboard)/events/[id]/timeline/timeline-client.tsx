@@ -1,381 +1,545 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
+import { useRouter } from "next/navigation"
+import {
+  createMilestone,
+  deleteMilestone,
+  toggleMilestone,
+  updateMilestone,
+} from "@/actions/milestone"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter } from "@/components/ui/dialog"
-import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from "@/components/ui/form"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Textarea } from "@/components/ui/textarea"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { Plus, Edit, Trash2, Calendar, Clock, CheckCircle, Loader2, GripVertical } from "lucide-react"
-import { cn, formatDate, getPriorityColor, getPriorityLabel, formatDateShort } from "@/lib/utils"
-import { z } from "zod"
-import { useForm } from "react-hook-form"
-import { zodResolver } from "@hookform/resolvers/zod"
-import { updateMilestone, deleteMilestone, reorderMilestones } from "@/actions/milestone"
-import { milestoneSchema } from "@/lib/validations/event"
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/hooks/use-toast"
-import { useRouter } from "next/navigation"
-import { DndContext, closestCenter, KeyboardSensor, PointerSensor, useSensor, useSensors, DragEndEvent } from "@dnd-kit/core"
-import { SortableContext, sortableKeyboardCoordinates, verticalListSortingStrategy, useSortable } from "@dnd-kit/sortable"
-import { CSS } from "@dnd-kit/utilities"
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  CalendarDays,
+  CheckCircle2,
+  Circle,
+  Loader2,
+  Flag,
+  Clock,
+  AlertTriangle,
+  ListChecks,
+} from "lucide-react"
+import { cn, formatDate, getDaysUntil, getPriorityColor, getPriorityLabel } from "@/lib/utils"
 
-interface Milestone {
+export interface Milestone {
   id: string
+  event_id: string
   title: string
   description: string | null
   due_date: string
-  completed: boolean
-  completed_at: string | null
   category: string
   priority: number
+  completed: boolean
+  completed_at: string | null
   sort_order: number
 }
 
 interface Props {
-  params: Promise<{ id: string }>
-  initialData: {
-    event: any
-    milestones: Milestone[]
-  }
+  eventId: string
+  eventDate: string
+  initialMilestones: Milestone[]
 }
 
-const formSchema = milestoneSchema
+const CATEGORIES = ["booking", "payments", "design", "logistics", "other"]
 
-export function TimelineClient({ params, initialData }: Props) {
-  const { id } = params
+export function TimelineClient({ eventId, eventDate, initialMilestones }: Props) {
   const router = useRouter()
   const { toast } = useToast()
-  const [milestones, setMilestones] = useState<Milestone[]>(initialData.milestones)
-  const [editingMilestone, setEditingMilestone] = useState<Milestone | null>(null)
-  const [isLoading, setIsLoading] = useState(false)
+  const [addOpen, setAddOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const [filter, setFilter] = useState("all")
+  const [togglingId, setTogglingId] = useState<string | null>(null)
 
-  const form = useForm({ resolver: zodResolver(formSchema), defaultValues: { title: "", category: "other", priority: "2" } })
-
-  const sensors = useSensors(
-    useSensor(PointerSensor),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  const sorted = useMemo(
+    () =>
+      [...initialMilestones].sort(
+        (a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime()
+      ),
+    [initialMilestones]
   )
 
-  const handleDragEnd = async (event: DragEndEvent) => {
-    const { active, over } = event
-    if (over && active.id !== over.id) {
-      const oldIndex = milestones.findIndex(m => m.id === active.id)
-      const newIndex = milestones.findIndex(m => m.id === over.id)
-      const newMilestones = Array.from(milestones)
-      const [removed] = newMilestones.splice(oldIndex, 1)
-      newMilestones.splice(newIndex, 0, removed)
-      
-      const reordered = newMilestones.map((m, i) => ({ id: m.id, sort_order: i }))
-      setMilestones(newMilestones)
-      
-      try {
-        await reorderMilestones(id, reordered)
-      } catch (error: any) {
-        toast({ title: "Error", description: error.message, variant: "destructive" })
-        setMilestones(milestones)
-      }
-    }
-  }
+  const completed = sorted.filter((milestone) => milestone.completed)
+  const overdue = sorted.filter(
+    (milestone) => !milestone.completed && getDaysUntil(milestone.due_date) < 0
+  )
+  const nextMilestone = sorted.find((milestone) => !milestone.completed)
+  const progress = sorted.length > 0 ? Math.round((completed.length / sorted.length) * 100) : 0
 
-  async function handleSubmit(data: any) {
-    setIsLoading(true)
+  const filtered = sorted.filter((milestone) => {
+    if (filter === "upcoming") return !milestone.completed
+    if (filter === "completed") return milestone.completed
+    return true
+  })
+
+  async function handleCreate(formData: FormData) {
+    setPending(true)
     try {
-      if (editingMilestone) {
-        await updateMilestone(editingMilestone.id, id, new FormData(Object.entries(data)))
-        toast({ title: "Milestone updated" })
-      } else {
-        const response = await fetch(`/events/${id}/timeline`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        })
-        if (!response.ok) throw new Error("Failed to create")
-        toast({ title: "Milestone created" })
-      }
+      await createMilestone(eventId, formData)
+      setAddOpen(false)
+      toast({ title: "Milestone added to your timeline" })
       router.refresh()
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } catch (error) {
+      toast({
+        title: "Could not add milestone",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
     } finally {
-      setIsLoading(false)
-      setEditingMilestone(null)
-      form.reset()
+      setPending(false)
     }
   }
 
-  async function handleDelete(milestoneId: string) {
-    if (!confirm("Delete this milestone?")) return
+  async function handleToggle(milestone: Milestone) {
+    setTogglingId(milestone.id)
     try {
-      await deleteMilestone(milestoneId, id)
-      toast({ title: "Milestone deleted" })
+      await toggleMilestone(milestone.id, eventId, !milestone.completed)
       router.refresh()
-    } catch (error: any) {
-      toast({ title: "Error", description: error.message, variant: "destructive" })
+    } catch (error) {
+      toast({
+        title: "Could not update milestone",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    } finally {
+      setTogglingId(null)
     }
   }
 
-  const categoryColors: Record<string, string> = {
-    booking: "bg-blue-100 text-blue-800",
-    payments: "bg-green-100 text-green-800",
-    design: "bg-purple-100 text-purple-800",
-    logistics: "bg-orange-100 text-orange-800",
-    other: "bg-gray-100 text-gray-800",
-  }
-
-  const incompleteMilestones = milestones.filter(m => !m.completed).sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime())
-  const completedMilestones = milestones.filter(m => m.completed).sort((a, b) => new Date(b.completed_at || b.due_date).getTime() - new Date(a.completed_at || a.due_date).getTime())
-
   return (
-    <div className="space-y-6 p-6">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-3xl font-bold">Timeline & Milestones</h1>
-          <p className="text-muted-foreground">Track key dates and deadlines for your event</p>
+          <h1 className="text-2xl font-bold tracking-tight">Timeline</h1>
+          <p className="text-sm text-muted-foreground">
+            A countdown of everything that needs to happen before the big day.
+          </p>
         </div>
-        <Dialog>
-          <DialogTrigger asChild>
-            <Button>
+        <Button onClick={() => setAddOpen(true)}>
+          <Plus className="mr-2 h-4 w-4" />
+          Add milestone
+        </Button>
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={<ListChecks className="h-5 w-5" />} label="Milestones" value={String(sorted.length)} />
+        <StatCard
+          icon={<CheckCircle2 className="h-5 w-5" />}
+          label="Completed"
+          value={`${completed.length} / ${sorted.length}`}
+          hint={`${progress}% done`}
+        />
+        <StatCard
+          icon={<AlertTriangle className="h-5 w-5" />}
+          label="Overdue"
+          value={String(overdue.length)}
+          tone={overdue.length > 0 ? "danger" : "default"}
+        />
+        <StatCard
+          icon={<CalendarDays className="h-5 w-5" />}
+          label="Event day"
+          value={formatDate(eventDate)}
+          hint={`${Math.max(0, getDaysUntil(eventDate))} days away`}
+        />
+      </div>
+
+      {nextMilestone ? (
+        <Card className="border-primary/30 bg-primary/5">
+          <CardContent className="flex flex-col gap-2 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wide text-primary">Next up</p>
+              <p className="mt-1 font-semibold">{nextMilestone.title}</p>
+              <p className="text-sm text-muted-foreground">
+                Due {formatDate(nextMilestone.due_date)}
+              </p>
+            </div>
+            <Badge
+              className={cn(
+                "shrink-0",
+                getDaysUntil(nextMilestone.due_date) < 0
+                  ? "bg-red-100 text-red-800"
+                  : "bg-primary/15 text-primary"
+              )}
+            >
+              {getDaysUntil(nextMilestone.due_date) < 0
+                ? `${Math.abs(getDaysUntil(nextMilestone.due_date))} days overdue`
+                : `${getDaysUntil(nextMilestone.due_date)} days left`}
+            </Badge>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      <Tabs value={filter} onValueChange={setFilter}>
+        <TabsList>
+          <TabsTrigger value="all">All</TabsTrigger>
+          <TabsTrigger value="upcoming">Upcoming</TabsTrigger>
+          <TabsTrigger value="completed">Completed</TabsTrigger>
+        </TabsList>
+      </Tabs>
+
+      {filtered.length === 0 ? (
+        <Card className="border-dashed">
+          <CardContent className="flex flex-col items-center gap-3 py-14 text-center">
+            <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+              <CalendarDays className="h-7 w-7" />
+            </div>
+            <div>
+              <h3 className="font-semibold">Nothing here yet</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Add a milestone, or generate a complete planning timeline in the AI Assistant.
+              </p>
+            </div>
+            <Button onClick={() => setAddOpen(true)}>
               <Plus className="mr-2 h-4 w-4" />
-              Add Milestone
+              Add milestone
             </Button>
-          </DialogTrigger>
-          <DialogContent className="max-w-md">
-            <DialogHeader>
-              <DialogTitle>{editingMilestone ? "Edit Milestone" : "Add Milestone"}</DialogTitle>
-            </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(handleSubmit)} className="space-y-4">
-                <FormField control={form.control} name="title" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Title</FormLabel>
-                    <FormControl><Input placeholder="Book venue" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="description" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description (optional)</FormLabel>
-                    <FormControl><Textarea placeholder="Details..." {...field} /></FormControl>
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="due_date" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Due Date</FormLabel>
-                    <FormControl><Input type="date" {...field} /></FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="category" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Category</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Select category" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="booking">Booking</SelectItem>
-                        <SelectItem value="payments">Payments</SelectItem>
-                        <SelectItem value="design">Design</SelectItem>
-                        <SelectItem value="logistics">Logistics</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormItem>
-                )} />
-                <FormField control={form.control} name="priority" render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Priority</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Priority" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="1">High</SelectItem>
-                        <SelectItem value="2">Medium</SelectItem>
-                        <SelectItem value="3">Low</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </FormItem>
-                )} />
-                <DialogFooter>
-                  <Button type="submit" disabled={isLoading}>{isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null} {editingMilestone ? "Save" : "Create"}</Button>
-                </DialogFooter>
-              </form>
-            </Form>
-          </DialogContent>
-        </Dialog>
-      </div>
-
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <StatCard title="Total" value={milestones.length} icon={Calendar} color="blue" />
-        <StatCard title="Completed" value={completedMilestones.length} icon={CheckCircle} color="green" />
-        <StatCard title="Pending" value={incompleteMilestones.length} icon={Clock} color="yellow" />
-        <StatCard title="Progress" value={`${milestones.length ? Math.round(completedMilestones.length / milestones.length * 100) : 0}%`} icon={TrendingUp} color="purple" />
-      </div>
-
-      {/* Timeline */}
-      <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-        <SortableContext items={incompleteMilestones.map(m => m.id)} strategy={verticalListSortingStrategy}>
-          <div className="space-y-4">
-            {incompleteMilestones.length > 0 ? (
-              <>
-                <h3 className="text-lg font-semibold text-muted-foreground">Upcoming</h3>
-                {incompleteMilestones.map((milestone) => (
-                  <SortableMilestoneCard
-                    key={milestone.id}
-                    milestone={milestone}
-                    onEdit={setEditingMilestone}
-                    onDelete={handleDelete}
-                    isEditing={editingMilestone?.id === milestone.id}
-                    form={form}
-                    onSave={(data) => handleSubmit(data)}
-                    onCancel={() => { setEditingMilestone(null); form.reset() }}
-                  />
-                ))}
-              </>
-            ) : (
-              <Card>
-                <CardContent className="py-8 text-center">
-                  <p className="text-muted-foreground mb-4">No milestones yet</p>
-                  <Button onClick={() => {}}>Create your first milestone</Button>
-                </CardContent>
-              </Card>
-            )}
-
-            {completedMilestones.length > 0 && (
-              <>
-                <h3 className="text-lg font-semibold text-muted-foreground">Completed</h3>
-                <div className="space-y-2">
-                  {completedMilestones.map((milestone) => (
-                    <CompletedMilestoneCard key={milestone.id} milestone={milestone} />
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-        </SortableContext>
-      </DndContext>
-    </div>
-  )
-}
-
-function StatCard({ title, value, icon: Icon, color }: { title: string; value: number | string; icon: React.ComponentType<{ className?: string }>; color: string }) {
-  const colors: Record<string, string> = {
-    blue: "bg-blue-100 text-blue-600",
-    green: "bg-green-100 text-green-600",
-    yellow: "bg-yellow-100 text-yellow-600",
-    purple: "bg-purple-100 text-purple-600",
-  }
-  return (
-    <Card>
-      <CardContent className="p-4">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-muted-foreground">{title}</p>
-            <p className="text-2xl font-bold">{value}</p>
-          </div>
-          <div className={cn("p-3 rounded-xl", colors[color])}><Icon className="h-6 w-6" /></div>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="relative space-y-3 before:absolute before:bottom-4 before:left-[19px] before:top-4 before:w-px before:bg-border sm:before:left-[23px]">
+          {filtered.map((milestone) => (
+            <MilestoneRow
+              key={milestone.id}
+              eventId={eventId}
+              milestone={milestone}
+              toggling={togglingId === milestone.id}
+              onToggle={() => handleToggle(milestone)}
+            />
+          ))}
         </div>
-      </CardContent>
-    </Card>
-  )
-}
+      )}
 
-function SortableMilestoneCard({ milestone, onEdit, onDelete, isEditing, form, onSave, onCancel }: {
-  milestone: Milestone
-  onEdit: (m: Milestone) => void
-  onDelete: (id: string) => void
-  isEditing: boolean
-  form: any
-  onSave: (data: any) => void
-  onCancel: () => void
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: milestone.id })
-  const style = { transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.5 : 1 }
-
-  return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
-      <Card className={cn("transition-shadow", isDragging && "shadow-lg")}>
-        <CardContent className="p-4">
-          {isEditing ? (
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSave)} className="space-y-3">
-                <FormField control={form.control} name="title" render={({ field }) => <FormControl><Input {...field} autoFocus /></FormControl>} />
-                <FormField control={form.control} name="due_date" render={({ field }) => <FormControl><Input type="date" {...field} /></FormControl>} />
-                <div className="flex gap-2">
-                  <FormField control={form.control} name="category" render={({ field }) => (
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger><SelectValue placeholder="Category" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="booking">Booking</SelectItem>
-                        <SelectItem value="payments">Payments</SelectItem>
-                        <SelectItem value="design">Design</SelectItem>
-                        <SelectItem value="logistics">Logistics</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )} />
-                  <FormField control={form.control} name="priority" render={({ field }) => (
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl><SelectTrigger className="w-32"><SelectValue placeholder="Priority" /></SelectTrigger></FormControl>
-                      <SelectContent>
-                        <SelectItem value="1">High</SelectItem>
-                        <SelectItem value="2">Medium</SelectItem>
-                        <SelectItem value="3">Low</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  )} />
-                  <Button type="submit" size="sm">Save</Button>
-                  <Button type="button" variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
-                </div>
-              </form>
-            </Form>
-          ) : (
-            <div className="flex items-start gap-3">
-              <Button variant="ghost" size="icon" {...attributes} {...listeners} className="cursor-grab active:cursor-grabbing">
-                <GripVertical className="h-5 w-5 text-muted-foreground" />
-              </Button>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <h4 className="font-medium">{milestone.title}</h4>
-                  <Badge className={categoryColors[milestone.category] || "bg-gray-100 text-gray-800"}>{milestone.category}</Badge>
-                  <Badge className={getPriorityColor(milestone.priority)}>{getPriorityLabel(milestone.priority)}</Badge>
-                </div>
-                {milestone.description && <p className="text-sm text-muted-foreground mt-1">{milestone.description}</p>}
-                <p className="text-sm text-muted-foreground mt-1">Due: {formatDate(milestone.due_date)} {formatDateShort(milestone.due_date)}</p>
+      <Dialog open={addOpen} onOpenChange={setAddOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add a milestone</DialogTitle>
+            <DialogDescription>
+              Big or small, every step gets you closer to the celebration.
+            </DialogDescription>
+          </DialogHeader>
+          <form action={handleCreate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="milestone-title">Title</Label>
+              <Input
+                id="milestone-title"
+                name="title"
+                placeholder="e.g. Book the photographer"
+                required
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="milestone-due">Due date</Label>
+                <Input id="milestone-due" name="due_date" type="date" required />
               </div>
-              <div className="flex items-center gap-2">
-                <Button variant="ghost" size="icon" onClick={() => onEdit(milestone)}><Edit className="h-4 w-4" /></Button>
-                <Button variant="ghost" size="icon" onClick={() => onDelete(milestone.id)}><Trash2 className="h-4 w-4" /></Button>
+              <div className="space-y-2">
+                <Label htmlFor="milestone-priority">Priority</Label>
+                <select
+                  id="milestone-priority"
+                  name="priority"
+                  defaultValue="2"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="1">High</option>
+                  <option value="2">Medium</option>
+                  <option value="3">Low</option>
+                </select>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="milestone-category">Category</Label>
+                <select
+                  id="milestone-category"
+                  name="category"
+                  defaultValue="other"
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm capitalize"
+                >
+                  {CATEGORIES.map((category) => (
+                    <option key={category} value={category} className="capitalize">
+                      {category}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
-          )}
-        </CardContent>
-      </Card>
+            <div className="space-y-2">
+              <Label htmlFor="milestone-description">Notes</Label>
+              <Textarea
+                id="milestone-description"
+                name="description"
+                rows={3}
+                placeholder="Any details or reminders"
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setAddOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Add milestone
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
 
-function CompletedMilestoneCard({ milestone }: { milestone: Milestone }) {
-  const categoryColors: Record<string, string> = {
-    booking: "bg-blue-100 text-blue-800",
-    payments: "bg-green-100 text-green-800",
-    design: "bg-purple-100 text-purple-800",
-    logistics: "bg-orange-100 text-orange-800",
-    other: "bg-gray-100 text-gray-800",
-  }
+function StatCard({
+  icon,
+  label,
+  value,
+  hint,
+  tone = "default",
+}: {
+  icon: React.ReactNode
+  label: string
+  value: string
+  hint?: string
+  tone?: "default" | "danger"
+}) {
   return (
-    <Card className="bg-green-50 border-green-200">
-      <CardContent className="p-3">
-        <div className="flex items-center gap-3">
-          <CheckCircle className="h-5 w-5 text-green-600 flex-shrink-0" />
-          <div className="flex-1 min-w-0">
-            <p className="font-medium line-through text-green-800">{milestone.title}</p>
-            <p className="text-sm text-green-600">Completed {milestone.completed_at ? formatDate(milestone.completed_at) : "recently"}</p>
-          </div>
-          <Badge variant="secondary" className={categoryColors[milestone.category]}>{milestone.category}</Badge>
+    <Card>
+      <CardContent className="flex items-start gap-3 p-5">
+        <div
+          className={cn(
+            "flex h-10 w-10 shrink-0 items-center justify-center rounded-xl",
+            tone === "danger" ? "bg-red-100 text-red-700" : "bg-primary/10 text-primary"
+          )}
+        >
+          {icon}
+        </div>
+        <div className="min-w-0">
+          <p className="text-sm text-muted-foreground">{label}</p>
+          <p className="truncate text-xl font-bold">{value}</p>
+          {hint ? <p className="truncate text-xs text-muted-foreground">{hint}</p> : null}
         </div>
       </CardContent>
     </Card>
+  )
+}
+
+function MilestoneRow({
+  eventId,
+  milestone,
+  toggling,
+  onToggle,
+}: {
+  eventId: string
+  milestone: Milestone
+  toggling: boolean
+  onToggle: () => void
+}) {
+  const router = useRouter()
+  const { toast } = useToast()
+  const [editOpen, setEditOpen] = useState(false)
+  const [pending, setPending] = useState(false)
+  const days = getDaysUntil(milestone.due_date)
+  const isOverdue = !milestone.completed && days < 0
+
+  async function handleUpdate(formData: FormData) {
+    setPending(true)
+    try {
+      await updateMilestone(milestone.id, eventId, formData)
+      setEditOpen(false)
+      toast({ title: "Milestone updated" })
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Could not update milestone",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    } finally {
+      setPending(false)
+    }
+  }
+
+  async function handleDelete() {
+    if (!window.confirm(`Delete "${milestone.title}"?`)) return
+    try {
+      await deleteMilestone(milestone.id, eventId)
+      toast({ title: "Milestone deleted" })
+      router.refresh()
+    } catch (error) {
+      toast({
+        title: "Could not delete milestone",
+        description: error instanceof Error ? error.message : "Please try again",
+        variant: "destructive",
+      })
+    }
+  }
+
+  return (
+    <div className="relative flex gap-3 sm:gap-4">
+      <button
+        type="button"
+        onClick={onToggle}
+        disabled={toggling}
+        aria-label={milestone.completed ? "Mark as incomplete" : "Mark as complete"}
+        className={cn(
+          "relative z-10 mt-4 flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 bg-background transition-colors sm:h-10 sm:w-10",
+          milestone.completed
+            ? "border-green-500 text-green-600"
+            : isOverdue
+              ? "border-red-400 text-red-500 hover:border-red-500"
+              : "border-border text-muted-foreground hover:border-primary hover:text-primary"
+        )}
+      >
+        {toggling ? (
+          <Loader2 className="h-4 w-4 animate-spin" />
+        ) : milestone.completed ? (
+          <CheckCircle2 className="h-5 w-5" />
+        ) : (
+          <Circle className="h-4 w-4" />
+        )}
+      </button>
+
+      <Card className={cn("flex-1", milestone.completed && "opacity-70")}>
+        <CardContent className="flex flex-col gap-2 p-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p
+                className={cn(
+                  "font-semibold",
+                  milestone.completed && "line-through text-muted-foreground"
+                )}
+              >
+                {milestone.title}
+              </p>
+              <Badge variant="secondary" className={cn("capitalize", getPriorityColor(milestone.priority))}>
+                <Flag className="mr-1 h-3 w-3" />
+                {getPriorityLabel(milestone.priority)}
+              </Badge>
+              <Badge variant="outline" className="capitalize">
+                {milestone.category}
+              </Badge>
+            </div>
+            {milestone.description ? (
+              <p className="mt-1 text-sm text-muted-foreground">{milestone.description}</p>
+            ) : null}
+            <p
+              className={cn(
+                "mt-1.5 flex items-center gap-1 text-xs",
+                isOverdue ? "font-medium text-red-600" : "text-muted-foreground"
+              )}
+            >
+              <Clock className="h-3 w-3" />
+              {formatDate(milestone.due_date)}
+              {milestone.completed
+                ? " · completed"
+                : days < 0
+                  ? ` · ${Math.abs(days)} days overdue`
+                  : days === 0
+                    ? " · today"
+                    : ` · in ${days} days`}
+            </p>
+          </div>
+          <div className="flex shrink-0 items-center gap-1">
+            <Button variant="ghost" size="icon" onClick={() => setEditOpen(true)} aria-label="Edit milestone">
+              <Pencil className="h-4 w-4" />
+            </Button>
+            <Button variant="ghost" size="icon" onClick={handleDelete} aria-label="Delete milestone">
+              <Trash2 className="h-4 w-4 text-red-600" />
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit milestone</DialogTitle>
+          </DialogHeader>
+          <form action={handleUpdate} className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor={`edit-title-${milestone.id}`}>Title</Label>
+              <Input
+                id={`edit-title-${milestone.id}`}
+                name="title"
+                defaultValue={milestone.title}
+                required
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor={`edit-due-${milestone.id}`}>Due date</Label>
+                <Input
+                  id={`edit-due-${milestone.id}`}
+                  name="due_date"
+                  type="date"
+                  defaultValue={milestone.due_date}
+                  required
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor={`edit-priority-${milestone.id}`}>Priority</Label>
+                <select
+                  id={`edit-priority-${milestone.id}`}
+                  name="priority"
+                  defaultValue={String(milestone.priority)}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="1">High</option>
+                  <option value="2">Medium</option>
+                  <option value="3">Low</option>
+                </select>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor={`edit-category-${milestone.id}`}>Category</Label>
+                <select
+                  id={`edit-category-${milestone.id}`}
+                  name="category"
+                  defaultValue={milestone.category}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm capitalize"
+                >
+                  {CATEGORIES.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor={`edit-description-${milestone.id}`}>Notes</Label>
+              <Textarea
+                id={`edit-description-${milestone.id}`}
+                name="description"
+                rows={3}
+                defaultValue={milestone.description || ""}
+              />
+            </div>
+            <DialogFooter>
+              <Button type="button" variant="outline" onClick={() => setEditOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                Save changes
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
   )
 }
