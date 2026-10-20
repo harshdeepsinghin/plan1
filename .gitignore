@@ -42,3 +42,4 @@ next-env.d.ts
 misc/
 
 .env_gemini_key
+client_secret_*.json
