@@ -11,7 +11,11 @@ plan1 keeps the theme, budget, guests, vendors, tasks, and timeline in one place
 [![Supabase](https://img.shields.io/badge/Supabase-Postgres-3FCF8E?style=flat-square&logo=supabase)](https://supabase.com)
 [![Google Gemini](https://img.shields.io/badge/Google-Gemini-4285F4?style=flat-square&logo=googlegemini&logoColor=white)](https://ai.google.dev)
 
-[![plan1 landing page](docs/plan1-landing.png)](https://plan1-zeta.vercel.app)
+[![plan1 landing page](docs/screenshots/landing.png)](https://plan1-zeta.vercel.app)
+
+| Event overview | Gemini planning chat |
+| --- | --- |
+| ![Event overview](docs/screenshots/overview.png) | ![Gemini planning chat](docs/screenshots/assistant.png) |
 
 Live: https://plan1-zeta.vercel.app  
 Repo: https://github.com/harshdeepsinghin/plan1
