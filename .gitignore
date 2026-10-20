@@ -40,3 +40,5 @@ next-env.d.ts
 
 # misc folder
 misc/
+
+.env_gemini_key
