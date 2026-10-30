@@ -304,6 +304,9 @@ Unit and component tests live next to the code they cover (`*.test.ts` / `*.test
 
 Playwright tests live in `e2e/`. They exercise the landing page, auth pages, keyboard skip link, 404 handling, protected-route redirects, security headers, and run axe accessibility scans (WCAG 2.0/2.1 A and AA) on every public page. CI runs the quality job first, then the end-to-end job with Chromium installed.
 
+Server actions are covered indirectly through the tested validation and authorization libraries.
+Authenticated-flow e2e needs a seeded Supabase test user and is not part of CI.
+
 ## Assumptions and limits
 
 1. Currency is a display setting. Amounts are not converted when you change it. Gemini receives the selected currency for new estimates.
