@@ -29,21 +29,33 @@ export interface ThemeColor {
   usage?: string
 }
 
-export function getThemeColors(theme: any): ThemeColor[] {
-  const palette = theme?.color_palette
+function isThemeColor(value: unknown): value is ThemeColor {
+  return Boolean(
+    value &&
+      typeof value === 'object' &&
+      typeof (value as ThemeColor).hex === 'string' &&
+      (value as ThemeColor).hex.length > 0
+  )
+}
+
+export function getThemeColors(theme: unknown): ThemeColor[] {
+  const palette = (theme as { color_palette?: unknown } | null | undefined)?.color_palette
   if (!palette) return []
 
-  if (Array.isArray(palette?.colors)) {
-    return palette.colors.filter((color: any) => Boolean(color?.hex))
+  if (typeof palette === 'object' && !Array.isArray(palette)) {
+    const colors = (palette as { colors?: unknown }).colors
+    if (Array.isArray(colors)) {
+      return colors.filter(isThemeColor)
+    }
   }
 
   if (Array.isArray(palette)) {
-    return palette.filter((color: any) => Boolean(color?.hex))
+    return palette.filter(isThemeColor)
   }
 
   const roleOrder = ['primary', 'secondary', 'accent', 'neutral', 'highlight']
 
-  return Object.entries(palette)
+  return Object.entries(palette as Record<string, unknown>)
     .filter(([, value]) => typeof value === 'string' && value.startsWith('#'))
     .sort(([a], [b]) => {
       const aIndex = roleOrder.indexOf(a)
@@ -57,9 +69,15 @@ export function getThemeColors(theme: any): ThemeColor[] {
     }))
 }
 
-export function getThemeKeywords(theme: any): string[] {
-  const keywords = theme?.mood_keywords || theme?.mood_board_keywords
-  return Array.isArray(keywords) ? keywords.filter((keyword) => typeof keyword === 'string') : []
+export function getThemeKeywords(theme: unknown): string[] {
+  const record = theme as
+    | { mood_keywords?: unknown; mood_board_keywords?: unknown }
+    | null
+    | undefined
+  const keywords = record?.mood_keywords || record?.mood_board_keywords
+  return Array.isArray(keywords)
+    ? keywords.filter((keyword): keyword is string => typeof keyword === 'string')
+    : []
 }
 
 export function getEventTypeLabel(type: string): string {

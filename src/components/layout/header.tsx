@@ -47,15 +47,18 @@ export function DashboardHeader({ user }: { user: HeaderUser }) {
             className="lg:hidden"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
             aria-label="Toggle navigation menu"
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-navigation"
           >
-            {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            {mobileMenuOpen ? <X className="h-5 w-5" aria-hidden="true" /> : <Menu className="h-5 w-5" aria-hidden="true" />}
           </Button>
 
           <BrandLogo href="/dashboard" wordmarkClassName="hidden sm:block" />
 
-          <nav className="ml-4 hidden items-center gap-1 md:flex">
+          <nav aria-label="Primary" className="ml-4 hidden items-center gap-1 md:flex">
             <Link
               href="/dashboard"
+              aria-current={pathname === "/dashboard" ? "page" : undefined}
               className={cn(
                 "rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
                 pathname === "/dashboard" && "bg-accent"
@@ -65,6 +68,7 @@ export function DashboardHeader({ user }: { user: HeaderUser }) {
             </Link>
             <Link
               href="/events/new"
+              aria-current={pathname === "/events/new" ? "page" : undefined}
               className={cn(
                 "rounded-lg px-3 py-2 text-sm font-medium transition-colors hover:bg-accent",
                 pathname === "/events/new" && "bg-accent"
@@ -86,10 +90,10 @@ export function DashboardHeader({ user }: { user: HeaderUser }) {
             variant="ghost"
             size="icon"
             onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-            aria-label="Toggle theme"
+            aria-label={`Switch to ${theme === "dark" ? "light" : "dark"} theme`}
           >
-            <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
+            <Sun className="h-5 w-5 rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" aria-hidden="true" />
+            <Moon className="absolute h-5 w-5 rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" aria-hidden="true" />
           </Button>
 
           <DropdownMenu>
@@ -144,11 +148,12 @@ export function DashboardHeader({ user }: { user: HeaderUser }) {
       </div>
 
       {mobileMenuOpen && (
-        <div className="border-t border-border bg-background px-4 py-3 md:hidden">
-          <nav className="flex flex-col gap-1">
+        <div id="mobile-navigation" className="border-t border-border bg-background px-4 py-3 md:hidden">
+          <nav aria-label="Mobile" className="flex flex-col gap-1">
             <Link
               href="/dashboard"
               onClick={() => setMobileMenuOpen(false)}
+              aria-current={pathname === "/dashboard" ? "page" : undefined}
               className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-accent"
             >
               Dashboard
@@ -156,6 +161,7 @@ export function DashboardHeader({ user }: { user: HeaderUser }) {
             <Link
               href="/events/new"
               onClick={() => setMobileMenuOpen(false)}
+              aria-current={pathname === "/events/new" ? "page" : undefined}
               className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-accent"
             >
               Create event
@@ -163,6 +169,7 @@ export function DashboardHeader({ user }: { user: HeaderUser }) {
             <Link
               href="/profile"
               onClick={() => setMobileMenuOpen(false)}
+              aria-current={pathname === "/profile" ? "page" : undefined}
               className="rounded-lg px-3 py-2 text-sm font-medium hover:bg-accent"
             >
               Profile

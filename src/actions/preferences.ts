@@ -1,8 +1,7 @@
 'use server'
 
 import { revalidatePath } from 'next/cache'
-import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { requireUser } from '@/lib/authorization'
 import { preferencesSchema } from '@/lib/validations/preferences'
 
 export interface UpdatePreferencesState {
@@ -14,12 +13,7 @@ export async function updatePreferences(
   _previousState: UpdatePreferencesState | null,
   formData: FormData
 ): Promise<UpdatePreferencesState> {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-
-  if (!user) redirect('/auth/login')
+  const { supabase, user } = await requireUser()
 
   const validated = preferencesSchema.parse(Object.fromEntries(formData.entries()))
 

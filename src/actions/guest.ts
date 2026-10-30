@@ -1,21 +1,19 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { requireEventEdit } from '@/lib/authorization'
+import { MAX_CSV_ROWS } from '@/lib/csv'
 import { guestSchema } from '@/lib/validations/event'
 
-async function requireUser() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-  return { supabase, user }
+const RSVP_VALUES = ['pending', 'yes', 'no', 'maybe'] as const
+
+function revalidateGuests(eventId: string) {
+  revalidatePath(`/events/${eventId}/guests`)
+  revalidatePath(`/events/${eventId}/overview`)
 }
 
 export async function createGuest(eventId: string, formData: FormData) {
-  const { supabase } = await requireUser()
-
+  const { supabase } = await requireEventEdit(eventId)
   const validated = guestSchema.parse(Object.fromEntries(formData.entries()))
 
   const { error } = await supabase.from('guests').insert({
@@ -24,8 +22,7 @@ export async function createGuest(eventId: string, formData: FormData) {
   })
 
   if (error) throw new Error(error.message)
-  revalidatePath(`/events/${eventId}/guests`)
-  revalidatePath(`/events/${eventId}/overview`)
+  revalidateGuests(eventId)
 }
 
 export async function createGuestsBulk(
@@ -42,7 +39,11 @@ export async function createGuestsBulk(
     notes?: string | null
   }>
 ) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
+
+  if (guests.length > MAX_CSV_ROWS) {
+    throw new Error(`Import at most ${MAX_CSV_ROWS.toLocaleString()} guests at a time`)
+  }
 
   const cleaned = guests
     .filter((guest) => guest.name?.trim())
@@ -60,13 +61,11 @@ export async function createGuestsBulk(
   const { error } = await supabase.from('guests').insert(cleaned)
   if (error) throw new Error(error.message)
 
-  revalidatePath(`/events/${eventId}/guests`)
-  revalidatePath(`/events/${eventId}/overview`)
+  revalidateGuests(eventId)
 }
 
 export async function updateGuest(guestId: string, eventId: string, formData: FormData) {
-  const { supabase } = await requireUser()
-
+  const { supabase } = await requireEventEdit(eventId)
   const validated = guestSchema.partial().parse(Object.fromEntries(formData.entries()))
 
   const { error } = await supabase
@@ -76,15 +75,15 @@ export async function updateGuest(guestId: string, eventId: string, formData: Fo
     .eq('event_id', eventId)
 
   if (error) throw new Error(error.message)
-  revalidatePath(`/events/${eventId}/guests`)
-  revalidatePath(`/events/${eventId}/overview`)
+  revalidateGuests(eventId)
 }
 
 export async function updateGuestRsvp(guestId: string, eventId: string, rsvpStatus: string) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
 
-  const allowed = ['pending', 'yes', 'no', 'maybe']
-  if (!allowed.includes(rsvpStatus)) throw new Error('Invalid RSVP status')
+  if (!RSVP_VALUES.includes(rsvpStatus as (typeof RSVP_VALUES)[number])) {
+    throw new Error('Invalid RSVP status')
+  }
 
   const { error } = await supabase
     .from('guests')
@@ -93,12 +92,11 @@ export async function updateGuestRsvp(guestId: string, eventId: string, rsvpStat
     .eq('event_id', eventId)
 
   if (error) throw new Error(error.message)
-  revalidatePath(`/events/${eventId}/guests`)
-  revalidatePath(`/events/${eventId}/overview`)
+  revalidateGuests(eventId)
 }
 
 export async function deleteGuest(guestId: string, eventId: string) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
 
   const { error } = await supabase
     .from('guests')
@@ -107,6 +105,5 @@ export async function deleteGuest(guestId: string, eventId: string) {
     .eq('event_id', eventId)
 
   if (error) throw new Error(error.message)
-  revalidatePath(`/events/${eventId}/guests`)
-  revalidatePath(`/events/${eventId}/overview`)
+  revalidateGuests(eventId)
 }

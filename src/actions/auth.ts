@@ -1,8 +1,10 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { redirect } from 'next/navigation'
+import { requireUser } from '@/lib/authorization'
+import { createClient } from '@/lib/supabase/server'
+import { profileUpdateSchema } from '@/lib/validations/profile'
 
 export async function signOut() {
   const supabase = await createClient()
@@ -12,21 +14,19 @@ export async function signOut() {
 }
 
 export async function updateProfile(formData: FormData) {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  const { supabase, user } = await requireUser()
 
-  if (!user) redirect('/auth/login')
-
-  const fullName = String(formData.get('full_name') || '').trim()
-  const avatarUrl = String(formData.get('avatar_url') || '').trim()
+  const raw = {
+    full_name: formData.get('full_name') ?? '',
+    avatar_url: formData.get('avatar_url') ?? '',
+  }
+  const validated = profileUpdateSchema.parse(raw)
 
   const { error } = await supabase
     .from('profiles')
     .update({
-      full_name: fullName || null,
-      avatar_url: avatarUrl || null,
+      full_name: validated.full_name || null,
+      avatar_url: validated.avatar_url || null,
       updated_at: new Date().toISOString(),
     })
     .eq('id', user.id)

@@ -1,19 +1,42 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { requireEventAccess, requireEventEdit } from '@/lib/authorization'
 import { generateJSON, generateText } from '@/lib/gemini/client'
 import {
-  buildThemePrompt,
-  buildColorPalettePrompt,
-  buildVendorSuggestionsPrompt,
-  buildTimelinePrompt,
-  buildBudgetBreakdownPrompt,
+  persistBudget,
+  persistIdea,
+  persistTheme,
+  persistTimeline,
+} from '@/lib/gemini/persist'
+import {
+  activityIdeasIdeaSchema,
+  budgetBreakdownIdeaSchema,
+  checklistIdeaSchema,
+  paletteIdeaSchema,
+  speechIdeaSchema,
+  themeIdeaSchema,
+  timelineIdeaSchema,
+  vendorSuggestionsIdeaSchema,
+} from '@/lib/gemini/schemas'
+import {
   buildActivityIdeasPrompt,
-  buildChecklistPrompt,
-  buildSpeechPrompt,
+  buildBudgetBreakdownPrompt,
   buildChatPrompt,
+  buildChecklistPrompt,
+  buildColorPalettePrompt,
+  buildSpeechPrompt,
+  buildThemePrompt,
+  buildTimelinePrompt,
+  buildVendorSuggestionsPrompt,
 } from '@/lib/gemini/prompts'
+import { enforceAiRateLimit } from '@/lib/rate-limit'
+import {
+  aiEventIdSchema,
+  chatInputSchema,
+  speechInputSchema,
+} from '@/lib/validations/ai'
 
 interface EventContext {
   event_type: string
@@ -24,13 +47,20 @@ interface EventContext {
   budget_total: number
   budget_spent: number
   currency: string
+  notes?: string
 }
 
-async function getEventContext(eventId: string): Promise<EventContext | null> {
-  const supabase = await createClient()
-  const { data: event } = await supabase.from('events').select('*').eq('id', eventId).maybeSingle()
+async function loadEventContext(
+  supabase: SupabaseClient,
+  eventId: string
+): Promise<EventContext> {
+  const { data: event, error } = await supabase
+    .from('events')
+    .select('*')
+    .eq('id', eventId)
+    .maybeSingle()
 
-  if (!event) return null
+  if (error || !event) throw new Error('Event not found')
 
   const { data: owner } = await supabase
     .from('profiles')
@@ -47,197 +77,128 @@ async function getEventContext(eventId: string): Promise<EventContext | null> {
     budget_total: Number(event.budget_total) || 0,
     budget_spent: Number(event.budget_spent) || 0,
     currency: owner?.currency || 'USD',
+    notes: event.notes || undefined,
   }
 }
 
-async function requireUser() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-  return { supabase, user }
+async function prepare(eventId: string) {
+  const parsedId = aiEventIdSchema.parse(eventId)
+  const { supabase, user } = await requireEventEdit(parsedId)
+  const context = await loadEventContext(supabase, parsedId)
+  return { supabase, user, context, eventId: parsedId }
 }
 
 export async function generateTheme(eventId: string) {
-  const { supabase } = await requireUser()
-  const context = await getEventContext(eventId)
-  if (!context) throw new Error('Event not found')
+  const { supabase, user, context, eventId: id } = await prepare(eventId)
+  await enforceAiRateLimit(supabase, user.id, id, 'theme')
 
-  const theme = await generateJSON<any>(buildThemePrompt(context))
+  const theme = await generateJSON(buildThemePrompt(context), themeIdeaSchema)
+  await persistTheme(supabase, id, theme)
 
-  await supabase.from('events').update({ ai_generated_theme: theme }).eq('id', eventId)
-  await supabase.from('ai_ideas').insert({
-    event_id: eventId,
-    idea_type: 'theme',
-    content: theme,
-    prompt_used: 'theme_generation',
-  })
-
-  revalidatePath(`/events/${eventId}/overview`)
-  revalidatePath(`/events/${eventId}/ai-assistant`)
+  revalidatePath(`/events/${id}/overview`)
+  revalidatePath(`/events/${id}/ai-assistant`)
   return theme
 }
 
 export async function generateColorPalette(eventId: string) {
-  const { supabase } = await requireUser()
-  const context = await getEventContext(eventId)
-  if (!context) throw new Error('Event not found')
+  const { supabase, user, context, eventId: id } = await prepare(eventId)
+  await enforceAiRateLimit(supabase, user.id, id, 'color_palette')
 
   const { data: event } = await supabase
     .from('events')
     .select('ai_generated_theme')
-    .eq('id', eventId)
+    .eq('id', id)
     .maybeSingle()
 
-  const palette = await generateJSON<any>(
-    buildColorPalettePrompt(context, event?.ai_generated_theme || undefined)
+  const palette = await generateJSON(
+    buildColorPalettePrompt(context, event?.ai_generated_theme || undefined),
+    paletteIdeaSchema
   )
 
-  await supabase.from('ai_ideas').insert({
-    event_id: eventId,
-    idea_type: 'color_palette',
-    content: palette,
-    prompt_used: 'color_palette',
-  })
-
-  revalidatePath(`/events/${eventId}/ai-assistant`)
+  await persistIdea(supabase, id, 'color_palette', palette, 'color_palette')
+  revalidatePath(`/events/${id}/ai-assistant`)
   return palette
 }
 
 export async function generateVendorSuggestions(eventId: string) {
-  const { supabase } = await requireUser()
-  const context = await getEventContext(eventId)
-  if (!context) throw new Error('Event not found')
+  const { supabase, user, context, eventId: id } = await prepare(eventId)
+  await enforceAiRateLimit(supabase, user.id, id, 'vendor_suggestions')
 
-  const suggestions = await generateJSON<any>(buildVendorSuggestionsPrompt(context))
+  const suggestions = await generateJSON(
+    buildVendorSuggestionsPrompt(context),
+    vendorSuggestionsIdeaSchema
+  )
 
-  await supabase.from('ai_ideas').insert({
-    event_id: eventId,
-    idea_type: 'vendor_suggestions',
-    content: suggestions,
-    prompt_used: 'vendor_suggestions',
-  })
-
-  revalidatePath(`/events/${eventId}/ai-assistant`)
-  revalidatePath(`/events/${eventId}/vendors`)
+  await persistIdea(supabase, id, 'vendor_suggestions', suggestions, 'vendor_suggestions')
+  revalidatePath(`/events/${id}/ai-assistant`)
+  revalidatePath(`/events/${id}/vendors`)
   return suggestions
 }
 
 export async function generateTimeline(eventId: string) {
-  const { supabase } = await requireUser()
-  const context = await getEventContext(eventId)
-  if (!context) throw new Error('Event not found')
+  const { supabase, user, context, eventId: id } = await prepare(eventId)
+  await enforceAiRateLimit(supabase, user.id, id, 'timeline')
 
-  const timeline = await generateJSON<any>(buildTimelinePrompt(context))
+  const timeline = await generateJSON(buildTimelinePrompt(context), timelineIdeaSchema)
 
-  if (timeline?.milestones?.length) {
-    const { count } = await supabase
-      .from('milestones')
-      .select('*', { count: 'exact', head: true })
-      .eq('event_id', eventId)
+  const { count } = await supabase
+    .from('milestones')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', id)
 
-    if (!count) {
-      await supabase.from('milestones').insert(
-        timeline.milestones.slice(0, 20).map((milestone: any, index: number) => ({
-          event_id: eventId,
-          title: String(milestone.title || `Milestone ${index + 1}`).slice(0, 100),
-          description: milestone.description ? String(milestone.description).slice(0, 500) : null,
-          due_date: milestone.due_date || context.event_date,
-          category: ['booking', 'payments', 'design', 'logistics', 'other'].includes(milestone.category)
-            ? milestone.category
-            : 'other',
-          priority: [1, 2, 3].includes(Number(milestone.priority)) ? Number(milestone.priority) : 2,
-          sort_order: index,
-        }))
-      )
-    }
-  }
-
-  await supabase.from('ai_ideas').insert({
-    event_id: eventId,
-    idea_type: 'timeline',
-    content: timeline,
-    prompt_used: 'timeline_generation',
+  await persistTimeline(supabase, id, timeline, context.event_date, {
+    insertMilestones: !count,
   })
 
-  revalidatePath(`/events/${eventId}/timeline`)
-  revalidatePath(`/events/${eventId}/ai-assistant`)
+  revalidatePath(`/events/${id}/timeline`)
+  revalidatePath(`/events/${id}/ai-assistant`)
   return timeline
 }
 
 export async function generateBudgetBreakdown(eventId: string) {
-  const { supabase } = await requireUser()
-  const context = await getEventContext(eventId)
-  if (!context) throw new Error('Event not found')
+  const { supabase, user, context, eventId: id } = await prepare(eventId)
+  await enforceAiRateLimit(supabase, user.id, id, 'budget_breakdown')
 
-  const budget = await generateJSON<any>(buildBudgetBreakdownPrompt(context))
+  const budget = await generateJSON(
+    buildBudgetBreakdownPrompt(context),
+    budgetBreakdownIdeaSchema
+  )
 
-  if (budget?.categories?.length) {
-    const { count } = await supabase
-      .from('budget_categories')
-      .select('*', { count: 'exact', head: true })
-      .eq('event_id', eventId)
+  const { count } = await supabase
+    .from('budget_categories')
+    .select('id', { count: 'exact', head: true })
+    .eq('event_id', id)
 
-    if (!count) {
-      await supabase.from('budget_categories').insert(
-        budget.categories.slice(0, 16).map((category: any, index: number) => ({
-          event_id: eventId,
-          name: String(category.name || `Category ${index + 1}`).slice(0, 50),
-          allocated:
-            Number(category.amount) ||
-            Math.round((context.budget_total * (Number(category.percentage) || 10)) / 100),
-          sort_order: index,
-        }))
-      )
-    }
-  }
-
-  await supabase.from('ai_ideas').insert({
-    event_id: eventId,
-    idea_type: 'budget_breakdown',
-    content: budget,
-    prompt_used: 'budget_breakdown',
+  await persistBudget(supabase, id, budget, context.budget_total, {
+    insertCategories: !count,
   })
 
-  revalidatePath(`/events/${eventId}/budget`)
-  revalidatePath(`/events/${eventId}/ai-assistant`)
+  revalidatePath(`/events/${id}/budget`)
+  revalidatePath(`/events/${id}/ai-assistant`)
   return budget
 }
 
 export async function generateActivityIdeas(eventId: string) {
-  const { supabase } = await requireUser()
-  const context = await getEventContext(eventId)
-  if (!context) throw new Error('Event not found')
+  const { supabase, user, context, eventId: id } = await prepare(eventId)
+  await enforceAiRateLimit(supabase, user.id, id, 'activity_ideas')
 
-  const activities = await generateJSON<any>(buildActivityIdeasPrompt(context))
+  const activities = await generateJSON(
+    buildActivityIdeasPrompt(context),
+    activityIdeasIdeaSchema
+  )
 
-  await supabase.from('ai_ideas').insert({
-    event_id: eventId,
-    idea_type: 'activities',
-    content: activities,
-    prompt_used: 'activity_ideas',
-  })
-
-  revalidatePath(`/events/${eventId}/ai-assistant`)
+  await persistIdea(supabase, id, 'activities', activities, 'activity_ideas')
+  revalidatePath(`/events/${id}/ai-assistant`)
   return activities
 }
 
 export async function generateChecklist(eventId: string) {
-  const { supabase } = await requireUser()
-  const context = await getEventContext(eventId)
-  if (!context) throw new Error('Event not found')
+  const { supabase, user, context, eventId: id } = await prepare(eventId)
+  await enforceAiRateLimit(supabase, user.id, id, 'checklist')
 
-  const checklist = await generateJSON<any>(buildChecklistPrompt(context))
-
-  await supabase.from('ai_ideas').insert({
-    event_id: eventId,
-    idea_type: 'checklist',
-    content: checklist,
-    prompt_used: 'checklist',
-  })
-
-  revalidatePath(`/events/${eventId}/ai-assistant`)
+  const checklist = await generateJSON(buildChecklistPrompt(context), checklistIdeaSchema)
+  await persistIdea(supabase, id, 'checklist', checklist, 'checklist')
+  revalidatePath(`/events/${id}/ai-assistant`)
   return checklist
 }
 
@@ -248,22 +209,23 @@ export async function generateSpeech(
   tone: string,
   keyMemories: string
 ) {
-  const { supabase } = await requireUser()
-  const context = await getEventContext(eventId)
-  if (!context) throw new Error('Event not found')
+  const input = speechInputSchema.parse({ eventId, role, relationship, tone, keyMemories })
+  const { supabase, user, context } = await prepare(input.eventId)
+  await enforceAiRateLimit(supabase, user.id, input.eventId, 'speech')
 
-  const speech = await generateJSON<any>(
-    buildSpeechPrompt(context, role, relationship, tone, keyMemories)
+  const speech = await generateJSON(
+    buildSpeechPrompt(context, input.role, input.relationship, input.tone, input.keyMemories),
+    speechIdeaSchema
   )
 
-  await supabase.from('ai_ideas').insert({
-    event_id: eventId,
-    idea_type: 'speech',
-    content: speech,
-    prompt_used: `speech_${role}`.slice(0, 100),
-  })
-
-  revalidatePath(`/events/${eventId}/ai-assistant`)
+  await persistIdea(
+    supabase,
+    input.eventId,
+    'speech',
+    speech,
+    `speech_${input.role}`.slice(0, 100)
+  )
+  revalidatePath(`/events/${input.eventId}/ai-assistant`)
   return speech
 }
 
@@ -272,21 +234,27 @@ export async function chatWithAI(
   message: string,
   history: Array<{ role: string; content: string }>
 ) {
-  await requireUser()
-  const context = await getEventContext(eventId)
-  if (!context) throw new Error('Event not found')
+  const input = chatInputSchema.parse({ eventId, message, history })
+  const { supabase, user } = await requireEventAccess(input.eventId)
+  const context = await loadEventContext(supabase, input.eventId)
+  await enforceAiRateLimit(supabase, user.id, input.eventId, 'chat')
 
-  return generateText(buildChatPrompt(context, message, history))
+  return generateText(
+    buildChatPrompt(context, input.message, input.history),
+    2048
+  )
 }
 
 export async function getAIIdeas(eventId: string) {
-  const { supabase } = await requireUser()
+  const id = aiEventIdSchema.parse(eventId)
+  const { supabase } = await requireEventAccess(id)
 
   const { data, error } = await supabase
     .from('ai_ideas')
-    .select('*')
-    .eq('event_id', eventId)
+    .select('id, idea_type, content, created_at')
+    .eq('event_id', id)
     .order('created_at', { ascending: false })
+    .limit(100)
 
   if (error) throw new Error(error.message)
   return data || []

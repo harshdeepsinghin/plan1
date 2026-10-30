@@ -1,53 +1,53 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import type { SupabaseClient } from '@supabase/supabase-js'
+import { requireEventEdit } from '@/lib/authorization'
 import { budgetCategorySchema, budgetItemSchema } from '@/lib/validations/event'
 
-async function requireUser() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-  return { supabase, user }
+async function refreshBudget(supabase: SupabaseClient, eventId: string) {
+  const { error } = await supabase.rpc('refresh_event_budget_spent', {
+    p_event_id: eventId,
+  })
+
+  if (error) throw new Error(error.message)
 }
 
-/** Keep budget_categories.spent and events.budget_spent in sync with line items. */
-async function recalcBudget(eventId: string) {
-  const supabase = await createClient()
-
-  const { data: categories } = await supabase
+async function assertCategoryInEvent(
+  supabase: SupabaseClient,
+  categoryId: string,
+  eventId: string
+) {
+  const { data, error } = await supabase
     .from('budget_categories')
     .select('id')
+    .eq('id', categoryId)
     .eq('event_id', eventId)
+    .maybeSingle()
 
-  if (!categories?.length) {
-    await supabase.from('events').update({ budget_spent: 0 }).eq('id', eventId)
-    return
-  }
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error('Budget category not found')
+}
 
-  let eventTotal = 0
-  for (const category of categories) {
-    const { data: items } = await supabase
-      .from('budget_items')
-      .select('actual_cost, estimated_cost, status')
-      .eq('category_id', category.id)
+async function assertItemInEvent(supabase: SupabaseClient, itemId: string, eventId: string) {
+  const { data, error } = await supabase
+    .from('budget_items')
+    .select('id, budget_categories!inner(event_id)')
+    .eq('id', itemId)
+    .eq('budget_categories.event_id', eventId)
+    .maybeSingle()
 
-    const spent = (items || [])
-      .filter((item) => item.status !== 'cancelled')
-      .reduce((sum, item) => sum + Number(item.actual_cost ?? 0), 0)
+  if (error) throw new Error(error.message)
+  if (!data) throw new Error('Budget item not found')
+}
 
-    eventTotal += spent
-    await supabase.from('budget_categories').update({ spent }).eq('id', category.id)
-  }
-
-  await supabase.from('events').update({ budget_spent: eventTotal }).eq('id', eventId)
+function revalidateBudget(eventId: string) {
+  revalidatePath(`/events/${eventId}/budget`)
+  revalidatePath(`/events/${eventId}/overview`)
 }
 
 export async function createBudgetCategory(eventId: string, formData: FormData) {
-  const { supabase } = await requireUser()
-
+  const { supabase } = await requireEventEdit(eventId)
   const validated = budgetCategorySchema.parse(Object.fromEntries(formData.entries()))
 
   const { error } = await supabase
@@ -55,8 +55,7 @@ export async function createBudgetCategory(eventId: string, formData: FormData) 
     .insert({ ...validated, event_id: eventId })
 
   if (error) throw new Error(error.message)
-  revalidatePath(`/events/${eventId}/budget`)
-  revalidatePath(`/events/${eventId}/overview`)
+  revalidateBudget(eventId)
 }
 
 export async function updateBudgetCategory(
@@ -64,8 +63,7 @@ export async function updateBudgetCategory(
   eventId: string,
   formData: FormData
 ) {
-  const { supabase } = await requireUser()
-
+  const { supabase } = await requireEventEdit(eventId)
   const validated = budgetCategorySchema.partial().parse(Object.fromEntries(formData.entries()))
 
   const { error } = await supabase
@@ -75,12 +73,11 @@ export async function updateBudgetCategory(
     .eq('event_id', eventId)
 
   if (error) throw new Error(error.message)
-  revalidatePath(`/events/${eventId}/budget`)
-  revalidatePath(`/events/${eventId}/overview`)
+  revalidateBudget(eventId)
 }
 
 export async function deleteBudgetCategory(categoryId: string, eventId: string) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
 
   const { error } = await supabase
     .from('budget_categories')
@@ -90,13 +87,13 @@ export async function deleteBudgetCategory(categoryId: string, eventId: string) 
 
   if (error) throw new Error(error.message)
 
-  await recalcBudget(eventId)
-  revalidatePath(`/events/${eventId}/budget`)
-  revalidatePath(`/events/${eventId}/overview`)
+  await refreshBudget(supabase, eventId)
+  revalidateBudget(eventId)
 }
 
 export async function createBudgetItem(categoryId: string, eventId: string, formData: FormData) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
+  await assertCategoryInEvent(supabase, categoryId, eventId)
 
   const validated = budgetItemSchema.parse(Object.fromEntries(formData.entries()))
 
@@ -106,47 +103,43 @@ export async function createBudgetItem(categoryId: string, eventId: string, form
 
   if (error) throw new Error(error.message)
 
-  await recalcBudget(eventId)
-  revalidatePath(`/events/${eventId}/budget`)
-  revalidatePath(`/events/${eventId}/overview`)
+  await refreshBudget(supabase, eventId)
+  revalidateBudget(eventId)
 }
 
 export async function updateBudgetItem(itemId: string, eventId: string, formData: FormData) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
+  await assertItemInEvent(supabase, itemId, eventId)
 
   const validated = budgetItemSchema.partial().parse(Object.fromEntries(formData.entries()))
 
-  const { error } = await supabase
-    .from('budget_items')
-    .update(validated)
-    .eq('id', itemId)
+  const { error } = await supabase.from('budget_items').update(validated).eq('id', itemId)
 
   if (error) throw new Error(error.message)
 
-  await recalcBudget(eventId)
-  revalidatePath(`/events/${eventId}/budget`)
-  revalidatePath(`/events/${eventId}/overview`)
+  await refreshBudget(supabase, eventId)
+  revalidateBudget(eventId)
 }
 
 export async function deleteBudgetItem(itemId: string, eventId: string) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
+  await assertItemInEvent(supabase, itemId, eventId)
 
   const { error } = await supabase.from('budget_items').delete().eq('id', itemId)
 
   if (error) throw new Error(error.message)
 
-  await recalcBudget(eventId)
-  revalidatePath(`/events/${eventId}/budget`)
-  revalidatePath(`/events/${eventId}/overview`)
+  await refreshBudget(supabase, eventId)
+  revalidateBudget(eventId)
 }
 
 export async function reorderBudgetCategories(
   eventId: string,
   categories: { id: string; sort_order: number }[]
 ) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
 
-  await Promise.all(
+  const results = await Promise.all(
     categories.map((category) =>
       supabase
         .from('budget_categories')
@@ -155,6 +148,9 @@ export async function reorderBudgetCategories(
         .eq('event_id', eventId)
     )
   )
+
+  const failed = results.find((result) => result.error)
+  if (failed?.error) throw new Error(failed.error.message)
 
   revalidatePath(`/events/${eventId}/budget`)
 }

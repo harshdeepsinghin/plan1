@@ -8,8 +8,9 @@ export const metadata = {
 
 export default function SignupPage() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-background">
+    <main id="main-content" className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-background">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col items-center justify-center px-4 py-10">
+        <h1 className="sr-only">Create your plan1 account</h1>
         <BrandLogo
           href="/"
           className="mb-8"
@@ -24,6 +25,6 @@ export default function SignupPage() {
           </Link>
         </p>
       </div>
-    </div>
+    </main>
   )
 }

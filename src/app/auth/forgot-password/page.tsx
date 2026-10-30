@@ -44,8 +44,9 @@ export default function ForgotPasswordPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-background">
+    <main id="main-content" className="min-h-screen bg-gradient-to-br from-primary/10 via-background to-background">
       <div className="mx-auto flex min-h-screen max-w-6xl flex-col items-center justify-center px-4 py-10">
+        <h1 className="sr-only">Reset your plan1 password</h1>
         <BrandLogo
           href="/"
           className="mb-8"
@@ -74,6 +75,7 @@ export default function ForgotPasswordPage() {
                 <Input
                   id="email"
                   type="email"
+                  autoComplete="email"
                   placeholder="you@example.com"
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
@@ -98,6 +100,6 @@ export default function ForgotPasswordPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </main>
   )
 }

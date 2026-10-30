@@ -177,7 +177,7 @@ export function BudgetClient({ eventId, initialCategories, eventBudget }: Props)
               {formatCurrency(Number(eventBudget) || totalAllocated)}
             </span>
           </div>
-          <Progress value={usedPercent} className="h-2.5" />
+          <Progress value={usedPercent} className="h-2.5" aria-label="Total budget used" />
           <p className="text-xs text-muted-foreground">{usedPercent}% of total budget</p>
         </CardContent>
       </Card>
@@ -383,7 +383,7 @@ function CategoryCard({ eventId, category }: { eventId: string; category: Budget
             </Button>
           </div>
         </div>
-        <Progress value={percent} className="mt-3 h-2" />
+        <Progress value={percent} className="mt-3 h-2" aria-label="Category budget used" />
       </CardHeader>
       <CardContent>
         {items.length === 0 ? (

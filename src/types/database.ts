@@ -31,6 +31,7 @@ export interface Event {
   guest_count: number
   budget_total: number
   budget_spent: number
+  notes: string | null
   status: EventStatus
   ai_generated_theme: AiTheme | null
   created_at: string

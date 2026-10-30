@@ -41,7 +41,17 @@ interface Props {
   params: Promise<{ id: string }>
 }
 
-function googleCalendarUrl(event: any) {
+interface EventCalendarFields {
+  event_date: string
+  title: string
+  venue: string | null
+}
+
+interface BudgetCategoryWithItems {
+  budget_items?: Array<{ actual_cost: number | string | null }> | null
+}
+
+function googleCalendarUrl(event: EventCalendarFields) {
   const date = String(event.event_date).replace(/-/g, "")
   const next = new Date(event.event_date)
   next.setDate(next.getDate() + 1)
@@ -76,7 +86,7 @@ export default async function EventOverviewPage({ params }: Props) {
       supabase.from("tasks").select("*").eq("event_id", id),
     ])
 
-  const categories = categoriesResult.data || []
+  const categories = (categoriesResult.data ?? []) as BudgetCategoryWithItems[]
   const milestones = milestonesResult.data || []
   const vendors = vendorsResult.data || []
   const guests = guestsResult.data || []
@@ -85,8 +95,8 @@ export default async function EventOverviewPage({ params }: Props) {
   const spent = categories.reduce(
     (sum, category) =>
       sum +
-      (category.budget_items || []).reduce(
-        (categorySum: number, item: any) => categorySum + Number(item.actual_cost || 0),
+      (category.budget_items ?? []).reduce(
+        (categorySum, item) => categorySum + Number(item.actual_cost || 0),
         0
       ),
     0
@@ -246,7 +256,7 @@ export default async function EventOverviewPage({ params }: Props) {
                   Colour palette
                 </p>
                 <div className="flex flex-wrap gap-2">
-                  {palette.map((color: any, index: number) => (
+                  {palette.map((color, index) => (
                     <div
                       key={index}
                       className="flex items-center gap-2 rounded-full border bg-card py-1 pl-1 pr-3"
@@ -323,7 +333,11 @@ export default async function EventOverviewPage({ params }: Props) {
                   <p className="mt-3 font-semibold">{section.label}</p>
                   <p className="text-sm text-muted-foreground">{section.detail}</p>
                   {section.percent !== null ? (
-                    <Progress value={section.percent} className="mt-3 h-1.5" />
+                    <Progress
+                      value={section.percent}
+                      className="mt-3 h-1.5"
+                      aria-label={`${section.label} progress`}
+                    />
                   ) : null}
                 </CardContent>
               </Card>

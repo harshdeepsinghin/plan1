@@ -44,7 +44,7 @@ Planning an event means keeping track of a lot of small decisions. The theme liv
 - **Vendors:** a board from research to booked, with quotes, contacts, ratings, and notes
 - **Guests:** CSV import and export, RSVP status, groups, plus-ones, and dietary notes
 - **Tasks:** a board with due dates, priorities, assignees, and notes
-- **Collaboration:** invite an existing planner as an editor or viewer
+- **Collaboration:** invite an existing planner as an editor or viewer; invitations stay pending until accepted or declined
 - **Preferences:** currency, timezone, date format, and default occasion
 - **Exports:** guest CSV, budget CSV, timeline CSV, full plan JSON, and an `.ics` file
 
@@ -97,9 +97,11 @@ flowchart TD
 
 ### Prompts and context
 
-Every generator gets the same event context: type, title, date, venue, guest count, budget, amount spent, location, cultural background, and free-text notes. The prompts are in `src/lib/gemini/prompts.ts` and return structured JSON so the UI can render the result.
+Every generator gets the same event context: type, title, date, venue, guest count, budget, amount spent, location, cultural background, and the host's free-text notes. The notes field is included in every prompt, including chat and speech drafts. The prompts are in `src/lib/gemini/prompts.ts` and return structured JSON so the UI can render the result.
 
-All prompts also get a style instruction: write in plain English, avoid em dashes and en dashes, and skip marketing language. This keeps generated copy closer to something a person would write.
+All prompts also get a style instruction: write in plain English, avoid em dashes and en dashes, and skip marketing language. This keeps generated copy closer to something a person would write. Because titles, venues, and notes are user-controlled, every prompt ends with a data guard that tells the model to treat those details as data, not instructions.
+
+Gemini responses are untrusted input. Before anything is stored or rendered, the JSON is parsed with the Zod schemas in `src/lib/gemini/schemas.ts`. Malformed or oversized output is rejected with a readable error instead of reaching the database.
 
 ### Gemini client
 
@@ -116,13 +118,15 @@ All prompts also get a style instruction: write in plain English, avoid em dashe
 
 You can override the model chain with `GEMINI_MODEL` and `GEMINI_FALLBACK_MODELS`.
 
+AI usage is rate limited in the database, not in local storage. Each successful request writes to the `ai_requests` ledger, and the server allows 6 requests per minute and 40 per hour per user. If the ledger is not available (for example, before migration 005 is applied), the limiter fails open so the assistant stays usable.
+
 ### Permissions
 
 Supabase Row Level Security protects every table. Owners can read and write their own events. Collaborators can read an event after they accept an invite. Editors can update content. Viewers are read-only.
 
 `SECURITY DEFINER` helpers such as `is_event_owner`, `can_access_event`, and `can_edit_event` keep the policies from calling themselves recursively. Event settings, collaborator management, and event deletion are owner-only.
 
-Invites are matched to an existing planner account and accepted immediately. There is no email delivery service in this build, so there is no pending invite state.
+Invites are matched to an existing planner account. An invitation does **not** grant access until the invitee accepts it. Pending invitations appear on the dashboard, where the invitee can accept or decline. Event rows, theme changes, and budget totals can only be changed by the owner; editors update the domain tables (budget items, milestones, vendors, guests, tasks) and use narrow RPCs for the rest. There is no email delivery service in this build, so the invitation is delivered in the app.
 
 ### Server actions
 
@@ -235,7 +239,7 @@ npx supabase link --project-ref your-project-ref
 npx supabase db push
 ```
 
-This applies the four migrations in order. You can also paste the files from `supabase/migrations/` into the Supabase SQL Editor.
+This applies all five migrations in order. You can also paste the files from `supabase/migrations/` into the Supabase SQL Editor. Migration 005 adds event notes, profile privacy helpers, pending invites, owner-only event updates, the AI usage ledger, and the RPCs used by the server actions.
 
 ### 4. Supabase Auth
 
@@ -271,22 +275,34 @@ Push to GitHub, import the repo in Vercel, add the environment variables, and de
 
 ## Security
 
-- Row Level Security on every user-facing table
-- Session checks in pages, layouts, and server actions
-- Owner, editor, and viewer checks on event mutations
-- Zod validation on event and domain input
+- Row Level Security on every user-facing table, with owner-only event rows and trigger checks that prevent collaborators from escalating their role
+- Session checks in pages, layouts, and every server action through `src/lib/authorization.ts`
+- Owner, editor, and viewer checks on event mutations; pending invites never grant access
+- Zod validation on all browser input and on every Gemini response
+- IDOR checks before budget, guest, task, vendor, and milestone writes
+- Database-backed AI rate limiting (`6/minute`, `40/hour` per user)
+- Security headers from `next.config.mjs`: CSP, HSTS, `X-Frame-Options: DENY`, `nosniff`, referrer and permissions policies, and no `X-Powered-By` header
+- Profile email addresses are private; collaborator lookup goes through a narrow `SECURITY DEFINER` RPC
 - Secrets only in environment variables; `.env*` and `client_secret_*.json` are gitignored
 - The auth callback validates the `next` redirect to prevent open redirects
+- CSV imports are bounded by row and byte limits before they reach the server
 
 ## Testing
 
 ```bash
-npx tsc --noEmit
-npm run lint
-npm run build
+npm run typecheck      # TypeScript, strict mode
+npm run lint           # ESLint, including jsx-a11y rules
+npm test               # Vitest unit and component tests
+npm run test:coverage  # coverage with enforced thresholds
+npm run test:e2e       # Playwright: public flows, redirects, headers, axe scans
+npm run build          # production build
 ```
 
-The app was tested in Playwright on desktop and mobile: signup and login, event creation, budget items, timeline milestones, vendors, guests, tasks, theme and chat generation, speech drafts, preference updates, currency and date display, collaborator access, and the Google Map embed.
+`npm run check` runs the typecheck, lint, and unit suite in one go.
+
+Unit and component tests live next to the code they cover (`*.test.ts` / `*.test.tsx`). They cover preferences and formatting, CSV parsing, event and AI validation, authorization and invite rules, the Gemini client and prompt builders, response schemas, persistence helpers, rate limiting, the brand mark, and the pending-invites UI.
+
+Playwright tests live in `e2e/`. They exercise the landing page, auth pages, keyboard skip link, 404 handling, protected-route redirects, security headers, and run axe accessibility scans (WCAG 2.0/2.1 A and AA) on every public page. CI runs the quality job first, then the end-to-end job with Chromium installed.
 
 ## Assumptions and limits
 

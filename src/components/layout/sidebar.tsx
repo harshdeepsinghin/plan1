@@ -18,6 +18,7 @@ import { cn, getEventTypeLabel, getDaysUntil } from "@/lib/utils"
 import { usePreferences } from "@/components/providers/preferences-provider"
 import { IntentLink } from "@/components/navigation/intent-link"
 import { Badge } from "@/components/ui/badge"
+import type { Event } from "@/types/database"
 
 const navigation = [
   { name: "Overview", segment: "overview", icon: LayoutDashboard },
@@ -30,7 +31,9 @@ const navigation = [
   { name: "Settings", segment: "settings", icon: Settings },
 ]
 
-export function EventSidebar({ event }: { event: any }) {
+type SidebarEvent = Pick<Event, "id" | "title" | "event_type" | "event_date" | "venue">
+
+export function EventSidebar({ event }: { event: SidebarEvent }) {
   const pathname = usePathname()
   const { formatDate } = usePreferences()
   const base = `/events/${event.id}`
@@ -39,7 +42,7 @@ export function EventSidebar({ event }: { event: any }) {
   return (
     <>
       {/* Desktop sidebar */}
-      <aside className="hidden w-64 shrink-0 lg:block">
+      <aside aria-label="Event summary" className="hidden w-64 shrink-0 lg:block">
         <div className="sticky top-24 space-y-4">
           <div className="rounded-2xl border bg-card p-4 shadow-sm">
             <Link
@@ -74,7 +77,7 @@ export function EventSidebar({ event }: { event: any }) {
             </div>
           </div>
 
-          <nav className="space-y-1">
+          <nav aria-label="Event sections" className="space-y-1">
             {navigation.map((item) => {
               const href = `${base}/${item.segment}`
               const isActive = pathname === href
@@ -84,6 +87,7 @@ export function EventSidebar({ event }: { event: any }) {
                 <IntentLink
                   key={item.segment}
                   href={href}
+                  aria-current={isActive ? "page" : undefined}
                   className={cn(
                     "flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors",
                     isActive
@@ -101,7 +105,7 @@ export function EventSidebar({ event }: { event: any }) {
       </aside>
 
       {/* Mobile navigation */}
-      <nav className="mb-4 flex gap-1.5 overflow-x-auto pb-1 lg:hidden">
+      <nav aria-label="Event sections" className="mb-4 flex gap-1.5 overflow-x-auto pb-1 lg:hidden">
         {navigation.map((item) => {
           const href = `${base}/${item.segment}`
           const isActive = pathname === href
@@ -111,6 +115,7 @@ export function EventSidebar({ event }: { event: any }) {
             <IntentLink
               key={item.segment}
               href={href}
+              aria-current={isActive ? "page" : undefined}
               className={cn(
                 "flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                 isActive

@@ -17,7 +17,6 @@ import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/hooks/use-toast"
 import {
   Settings,
-  Users,
   Download,
   Trash2,
   Loader2,
@@ -31,10 +30,10 @@ import {
   ExternalLink,
   AlertTriangle,
   Share2,
-  Smartphone,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { toCsvValue } from "@/lib/csv"
 import { usePreferences } from "@/components/providers/preferences-provider"
+import type { BudgetItem, Event, Guest, Milestone, Task, Vendor } from "@/types/database"
 
 export interface Collaborator {
   id: string
@@ -48,26 +47,24 @@ export interface Collaborator {
   } | null
 }
 
+interface ExportCategory {
+  name: string
+  budget_items?: BudgetItem[] | null
+}
+
 interface ExportData {
-  categories: any[]
-  guests: any[]
-  milestones: any[]
-  vendors: any[]
-  tasks: any[]
+  categories: ExportCategory[]
+  guests: Guest[]
+  milestones: Milestone[]
+  vendors: Vendor[]
+  tasks: Task[]
 }
 
 interface Props {
-  event: any
+  event: Event
   collaborators: Collaborator[]
   exportData: ExportData
   isOwner: boolean
-}
-
-function toCsvValue(value: unknown): string {
-  const stringValue = value === null || value === undefined ? "" : String(value)
-  return /[",\n\r]/.test(stringValue)
-    ? `"${stringValue.replace(/"/g, '""')}"`
-    : stringValue
 }
 
 function downloadFile(content: string, filename: string, type: string) {
@@ -80,7 +77,9 @@ function downloadFile(content: string, filename: string, type: string) {
   URL.revokeObjectURL(url)
 }
 
-function buildIcs(event: any): string {
+type CalendarEvent = Pick<Event, "id" | "title" | "event_date" | "venue" | "guest_count">
+
+function buildIcs(event: CalendarEvent): string {
   const date = String(event.event_date).replace(/-/g, "")
   const next = new Date(event.event_date)
   next.setDate(next.getDate() + 1)
@@ -106,7 +105,7 @@ function buildIcs(event: any): string {
     .join("\r\n")
 }
 
-function googleCalendarUrl(event: any): string {
+function googleCalendarUrl(event: CalendarEvent): string {
   const date = String(event.event_date).replace(/-/g, "")
   const next = new Date(event.event_date)
   next.setDate(next.getDate() + 1)
@@ -150,7 +149,7 @@ export function SettingsClient({ event, collaborators, exportData, isOwner }: Pr
     setInviting(true)
     try {
       await inviteCollaborator(event.id, formData)
-      toast({ title: "Collaborator added" })
+      toast({ title: "Invitation sent", description: "They will see it on their dashboard." })
       router.refresh()
     } catch (error) {
       toast({
@@ -236,7 +235,7 @@ export function SettingsClient({ event, collaborators, exportData, isOwner }: Pr
   function exportBudget() {
     const headers = ["category", "expense", "vendor", "estimated", "actual", "status"]
     const rows = exportData.categories.flatMap((category) =>
-      (category.budget_items || []).map((item: any) =>
+      (category.budget_items ?? []).map((item) =>
         [
           category.name,
           item.name,
@@ -294,8 +293,8 @@ export function SettingsClient({ event, collaborators, exportData, isOwner }: Pr
   const spent = exportData.categories.reduce(
     (sum, category) =>
       sum +
-      (category.budget_items || []).reduce(
-        (categorySum: number, item: any) => categorySum + Number(item.actual_cost || 0),
+      (category.budget_items ?? []).reduce(
+        (categorySum, item) => categorySum + Number(item.actual_cost || 0),
         0
       ),
     0
@@ -420,6 +419,22 @@ export function SettingsClient({ event, collaborators, exportData, isOwner }: Pr
                     disabled={!isOwner}
                   />
                 </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="settings-notes">Anything special?</Label>
+                  <textarea
+                    id="settings-notes"
+                    name="notes"
+                    defaultValue={event.notes || ""}
+                    maxLength={500}
+                    rows={3}
+                    disabled={!isOwner}
+                    placeholder="Cultural traditions, must-haves, colour ideas, accessibility needs"
+                    className="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    These notes are included in every Gemini prompt for this event.
+                  </p>
+                </div>
                 <div className="sm:col-span-2">
                   {isOwner ? (
                     <Button type="submit" disabled={saving}>
@@ -448,17 +463,25 @@ export function SettingsClient({ event, collaborators, exportData, isOwner }: Pr
             <CardContent className="space-y-4">
               {isOwner ? (
                 <form action={handleInvite} className="flex flex-col gap-2 sm:flex-row">
-                  <Input
-                    name="email"
-                    type="email"
-                    placeholder="planner@example.com"
-                    required
-                    className="flex-1"
-                  />
+                  <div className="flex-1">
+                    <Label htmlFor="invite-email" className="sr-only">
+                      Collaborator email
+                    </Label>
+                    <Input
+                      id="invite-email"
+                      name="email"
+                      type="email"
+                      placeholder="planner@example.com"
+                      autoComplete="email"
+                      required
+                      className="flex-1"
+                    />
+                  </div>
                   <select
                     name="role"
                     defaultValue="editor"
-                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                    aria-label="Collaborator role"
+                    className="h-10 rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                   >
                     <option value="editor">Editor</option>
                     <option value="viewer">Viewer</option>

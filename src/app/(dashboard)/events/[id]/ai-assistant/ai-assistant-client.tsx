@@ -27,7 +27,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { useToast } from "@/hooks/use-toast"
 import {
   Sparkles,
@@ -48,27 +47,41 @@ import {
   ChevronDown,
   ChevronUp,
   MapPin,
+  type LucideIcon,
 } from "lucide-react"
 import { cn, getThemeColors, getThemeKeywords } from "@/lib/utils"
 import { usePreferences } from "@/components/providers/preferences-provider"
+import {
+  budgetBreakdownIdeaSchema,
+  paletteIdeaSchema,
+  themeIdeaSchema,
+  timelineIdeaSchema,
+  vendorSuggestionsIdeaSchema,
+  type ColorEntry,
+  type SpeechIdea,
+} from "@/lib/gemini/schemas"
 
 interface SavedIdea {
   id: string
   idea_type: string
-  content: any
+  content: unknown
   created_at: string
+}
+
+interface AssistantEvent {
+  title: string
 }
 
 interface Props {
   eventId: string
-  event: any
+  event: AssistantEvent
   initialIdeas: SavedIdea[]
   initialAction?: string
 }
 
 interface Generated {
   type: string
-  data: any
+  data: unknown
 }
 
 interface ChatMessage {
@@ -76,7 +89,15 @@ interface ChatMessage {
   content: string
 }
 
-const GENERATORS = [
+interface Generator {
+  id: string
+  title: string
+  description: string
+  icon: LucideIcon
+  run: (eventId: string) => Promise<unknown>
+}
+
+const GENERATORS: Generator[] = [
   {
     id: "theme",
     title: "Theme",
@@ -128,6 +149,26 @@ const GENERATORS = [
   },
 ]
 
+function normalizeColors(value: unknown): ColorEntry[] {
+  if (Array.isArray(value)) {
+    return value.flatMap((entry) => {
+      if (typeof entry === "string") return [{ hex: entry }]
+      if (entry && typeof entry === "object" && "hex" in entry) {
+        return [entry as ColorEntry]
+      }
+      return []
+    })
+  }
+
+  if (value && typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([role, hex]) =>
+      typeof hex === "string" && hex.startsWith("#") ? [{ role, hex }] : []
+    )
+  }
+
+  return []
+}
+
 const TYPE_LABELS: Record<string, string> = {
   theme: "Theme",
   color_palette: "Colour palette",
@@ -156,7 +197,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
   const [chatInput, setChatInput] = useState("")
   const [chatting, setChatting] = useState(false)
   const [speechLoading, setSpeechLoading] = useState(false)
-  const [speechResult, setSpeechResult] = useState<any>(null)
+  const [speechResult, setSpeechResult] = useState<SpeechIdea | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -267,13 +308,26 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
     }
   }
 
-  function copyJson() {
-    if (!generated) return
-    navigator.clipboard.writeText(JSON.stringify(generated.data, null, 2))
-    toast({ title: "Copied to clipboard" })
+  async function copyText(text: string, title: string) {
+    try {
+      if (!navigator.clipboard) throw new Error("Clipboard unavailable")
+      await navigator.clipboard.writeText(text)
+      toast({ title })
+    } catch {
+      toast({
+        title: "Could not copy",
+        description: "Select the text and copy it manually instead.",
+        variant: "destructive",
+      })
+    }
   }
 
-  const speechDrafts: any[] = Array.isArray(speechResult?.drafts) ? speechResult.drafts : []
+  function copyJson() {
+    if (!generated) return
+    void copyText(JSON.stringify(generated.data, null, 2), "Copied to clipboard")
+  }
+
+  const speechDrafts = speechResult?.drafts ?? []
   const speechText =
     speechResult?.content ||
     speechResult?.speech ||
@@ -369,7 +423,14 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
                 Planning chat
               </CardTitle>
             </CardHeader>
-            <div ref={scrollRef} className="flex-1 space-y-4 overflow-y-auto p-4">
+            <div
+              ref={scrollRef}
+              role="log"
+              aria-live="polite"
+              aria-label="Chat messages"
+              aria-busy={chatting}
+              className="flex-1 space-y-4 overflow-y-auto p-4"
+            >
               {chatMessages.map((message, index) => (
                 <div
                   key={index}
@@ -445,10 +506,16 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
                   value={chatInput}
                   onChange={(changeEvent) => setChatInput(changeEvent.target.value)}
                   placeholder="Ask your planning assistant…"
+                  aria-label="Message the planning assistant"
                   disabled={chatting}
                 />
-                <Button type="submit" size="icon" disabled={chatting || !chatInput.trim()}>
-                  <Send className="h-4 w-4" />
+                <Button
+                  type="submit"
+                  size="icon"
+                  aria-label="Send message"
+                  disabled={chatting || !chatInput.trim()}
+                >
+                  <Send className="h-4 w-4" aria-hidden="true" />
                 </Button>
               </form>
             </div>
@@ -475,7 +542,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
                       <select
                         id="speech-role"
                         name="role"
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         defaultValue="friend"
                       >
                         <option value="partner">Partner</option>
@@ -491,7 +558,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
                       <select
                         id="speech-tone"
                         name="tone"
-                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         defaultValue="heartfelt"
                       >
                         <option value="heartfelt">Heartfelt</option>
@@ -548,7 +615,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
                   <div className="space-y-3">
                     {speechDrafts.length > 0 ? (
                       <div className="max-h-[480px] space-y-3 overflow-y-auto pr-1">
-                        {speechDrafts.map((draft: any, index: number) => (
+                        {speechDrafts.map((draft, index) => (
                           <div key={index} className="rounded-xl border p-4">
                             <div className="flex flex-wrap items-center justify-between gap-2">
                               <h3 className="font-semibold">
@@ -581,8 +648,7 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
                     <Button
                       variant="outline"
                       onClick={() => {
-                        navigator.clipboard.writeText(speechText)
-                        toast({ title: "Speech copied" })
+                        void copyText(speechText, "Speech copied")
                       }}
                     >
                       <Copy className="mr-2 h-4 w-4" />
@@ -643,72 +709,80 @@ export function AIAssistantClient({ eventId, event, initialIdeas, initialAction 
   )
 }
 
-function GeneratedContent({ type, data }: { type: string; data: any }) {
+function GeneratedContent({ type, data }: { type: string; data: unknown }) {
   const { formatCurrency } = usePreferences()
 
   if (!data) return null
 
   if (type === "theme") {
-    const palette = getThemeColors(data)
-    const keywords = getThemeKeywords(data)
+    const parsed = themeIdeaSchema.safeParse(data)
+    if (parsed.success) {
+      const theme = parsed.data
+      const palette = getThemeColors(theme)
+      const keywords = getThemeKeywords(theme)
 
-    return (
-      <div className="space-y-4">
-        <div>
-          <h3 className="text-xl font-bold">{data.theme_name}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">{data.description}</p>
-        </div>
-        {palette.length > 0 ? (
+      return (
+        <div className="space-y-4">
           <div>
-            <p className="mb-2 text-sm font-medium">Palette</p>
-            <div className="grid grid-cols-5 gap-2">
-              {palette.map((color, index) => (
-                <div key={index} className="space-y-1">
-                  <div
-                    className="h-14 rounded-lg border"
-                    style={{ backgroundColor: String(color.hex || "#eee") }}
-                  />
-                  <p className="truncate text-[10px] text-muted-foreground">{color.hex}</p>
-                </div>
+            <h3 className="text-xl font-bold">{theme.theme_name}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{theme.description}</p>
+          </div>
+          {palette.length > 0 ? (
+            <div>
+              <p className="mb-2 text-sm font-medium">Palette</p>
+              <div className="grid grid-cols-5 gap-2">
+                {palette.map((color, index) => (
+                  <div key={`${color.hex}-${index}`} className="space-y-1">
+                    <div
+                      aria-hidden="true"
+                      className="h-14 rounded-lg border"
+                      style={{ backgroundColor: color.hex || "#eee" }}
+                    />
+                    <p className="truncate text-[10px] text-muted-foreground">{color.hex}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+          {keywords.length > 0 ? (
+            <div className="flex flex-wrap gap-1.5">
+              {keywords.map((keyword) => (
+                <Badge key={keyword} variant="secondary">
+                  {keyword}
+                </Badge>
               ))}
             </div>
-          </div>
-        ) : null}
-        {keywords.length > 0 ? (
-          <div className="flex flex-wrap gap-1.5">
-            {keywords.map((keyword: string) => (
-              <Badge key={keyword} variant="secondary">
-                {keyword}
-              </Badge>
-            ))}
-          </div>
-        ) : null}
-        {data.decor_style ? (
-          <div>
-            <p className="text-sm font-medium">Decor direction</p>
-            <p className="text-sm text-muted-foreground">{data.decor_style}</p>
-          </div>
-        ) : null}
-        <RawJson data={data} />
-      </div>
-    )
+          ) : null}
+          {theme.decor_style ? (
+            <div>
+              <p className="text-sm font-medium">Decor direction</p>
+              <p className="text-sm text-muted-foreground">{theme.decor_style}</p>
+            </div>
+          ) : null}
+          <RawJson data={data} />
+        </div>
+      )
+    }
   }
 
   if (type === "palette") {
-    const colors = data.colors || data.palette?.colors || data.palette || []
+    const parsed = paletteIdeaSchema.safeParse(data)
+    const colors = parsed.success
+      ? normalizeColors(parsed.data.colors ?? parsed.data.palette)
+      : []
+
     return (
       <div className="space-y-3">
-        {Array.isArray(colors) && colors.length > 0 ? (
+        {colors.length > 0 ? (
           <div className="grid grid-cols-5 gap-2">
-            {colors.map((color: any, index: number) => (
-              <div key={index} className="space-y-1">
+            {colors.map((color, index) => (
+              <div key={`${color.hex ?? "swatch"}-${index}`} className="space-y-1">
                 <div
+                  aria-hidden="true"
                   className="h-16 rounded-lg border"
-                  style={{ backgroundColor: String(color.hex || color || "#eee") }}
+                  style={{ backgroundColor: color.hex || "#eee" }}
                 />
-                <p className="truncate text-[10px] text-muted-foreground">
-                  {typeof color === "string" ? color : color.hex}
-                </p>
+                <p className="truncate text-[10px] text-muted-foreground">{color.hex}</p>
               </div>
             ))}
           </div>
@@ -719,103 +793,119 @@ function GeneratedContent({ type, data }: { type: string; data: any }) {
   }
 
   if (type === "timeline") {
-    const milestones = data.milestones || []
-    return (
-      <div className="space-y-2">
-        {milestones.map((milestone: any, index: number) => (
-          <div key={index} className="flex items-start gap-3 rounded-lg border p-3">
-            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-              {index + 1}
+    const parsed = timelineIdeaSchema.safeParse(data)
+    if (parsed.success) {
+      return (
+        <div className="space-y-2">
+          {parsed.data.milestones.map((milestone, index) => (
+            <div
+              key={`${milestone.title}-${index}`}
+              className="flex items-start gap-3 rounded-lg border p-3"
+            >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+                {index + 1}
+              </div>
+              <div>
+                <p className="text-sm font-medium">{milestone.title}</p>
+                <p className="text-xs text-muted-foreground">
+                  {milestone.due_date || "No date"} · {milestone.category}
+                </p>
+                {milestone.description ? (
+                  <p className="mt-0.5 text-xs text-muted-foreground">{milestone.description}</p>
+                ) : null}
+              </div>
             </div>
-            <div>
-              <p className="text-sm font-medium">{milestone.title}</p>
-              <p className="text-xs text-muted-foreground">
-                {milestone.due_date || milestone.date} · {milestone.category || "planning"}
-              </p>
-              {milestone.description ? (
-                <p className="mt-0.5 text-xs text-muted-foreground">{milestone.description}</p>
-              ) : null}
-            </div>
-          </div>
-        ))}
-        <RawJson data={data} />
-      </div>
-    )
+          ))}
+          <RawJson data={data} />
+        </div>
+      )
+    }
   }
 
   if (type === "vendors" || type === "vendor_suggestions") {
-    const vendors = data.vendors || []
-    return (
-      <div className="space-y-3">
-        {vendors.map((vendor: any, index: number) => (
-          <div key={index} className="rounded-lg border p-3">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm font-semibold">{vendor.category}</p>
-              {vendor.priority ? (
-                <Badge variant="secondary" className="capitalize">
-                  {vendor.priority} priority
-                </Badge>
+    const parsed = vendorSuggestionsIdeaSchema.safeParse(data)
+    if (parsed.success) {
+      return (
+        <div className="space-y-3">
+          {parsed.data.vendors.map((vendor, index) => (
+            <div key={`${vendor.category}-${index}`} className="rounded-lg border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-semibold">{vendor.category}</p>
+                {vendor.priority ? (
+                  <Badge variant="secondary" className="capitalize">
+                    {vendor.priority} priority
+                  </Badge>
+                ) : null}
+              </div>
+              {vendor.budget_percentage ? (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  About {vendor.budget_percentage}% of your budget
+                </p>
+              ) : null}
+              {vendor.search_queries && vendor.search_queries.length > 0 ? (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {vendor.search_queries.slice(0, 3).map((query) => (
+                    <a
+                      key={query}
+                      href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <MapPin className="h-3 w-3 text-primary" aria-hidden="true" />
+                      {query}
+                    </a>
+                  ))}
+                </div>
+              ) : null}
+              {vendor.tips && vendor.tips.length > 0 ? (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  <span className="font-medium text-foreground">Tip:</span> {vendor.tips[0]}
+                </p>
               ) : null}
             </div>
-            {vendor.budget_percentage ? (
-              <p className="mt-1 text-xs text-muted-foreground">
-                About {vendor.budget_percentage}% of your budget
-              </p>
-            ) : null}
-            {Array.isArray(vendor.search_queries) && vendor.search_queries.length > 0 ? (
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {vendor.search_queries.slice(0, 3).map((query: string) => (
-                  <a
-                    key={query}
-                    href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded-full border bg-background px-2.5 py-1 text-[11px] font-medium text-muted-foreground transition-colors hover:text-foreground"
-                  >
-                    <MapPin className="h-3 w-3 text-primary" />
-                    {query}
-                  </a>
-                ))}
-              </div>
-            ) : null}
-            {Array.isArray(vendor.tips) && vendor.tips.length > 0 ? (
-              <p className="mt-2 text-xs text-muted-foreground">
-                <span className="font-medium text-foreground">Tip:</span> {vendor.tips[0]}
-              </p>
-            ) : null}
-          </div>
-        ))}
-        <RawJson data={data} />
-      </div>
-    )
+          ))}
+          <RawJson data={data} />
+        </div>
+      )
+    }
   }
 
   if (type === "budget") {
-    const categories = data.categories || []
-    const total = categories.reduce((sum: number, category: any) => sum + Number(category.amount || 0), 0)
-    return (
-      <div className="space-y-2">
-        {categories.map((category: any, index: number) => (
-          <div key={index} className="flex items-center justify-between rounded-lg border p-3 text-sm">
-            <div>
-              <p className="font-medium">{category.name}</p>
-              {category.description ? (
-                <p className="text-xs text-muted-foreground">{category.description}</p>
-              ) : null}
+    const parsed = budgetBreakdownIdeaSchema.safeParse(data)
+    if (parsed.success) {
+      const categories = parsed.data.categories
+      const total = categories.reduce(
+        (sum, category) => sum + Number(category.amount || 0),
+        0
+      )
+      return (
+        <div className="space-y-2">
+          {categories.map((category, index) => (
+            <div
+              key={`${category.name}-${index}`}
+              className="flex items-center justify-between rounded-lg border p-3 text-sm"
+            >
+              <div>
+                <p className="font-medium">{category.name}</p>
+                {category.description ? (
+                  <p className="text-xs text-muted-foreground">{category.description}</p>
+                ) : null}
+              </div>
+              <span className="font-semibold">{formatCurrency(Number(category.amount || 0))}</span>
             </div>
-            <span className="font-semibold">{formatCurrency(Number(category.amount || 0))}</span>
-          </div>
-        ))}
-        <p className="text-right text-sm font-semibold">Total: {formatCurrency(total)}</p>
-        <RawJson data={data} />
-      </div>
-    )
+          ))}
+          <p className="text-right text-sm font-semibold">Total: {formatCurrency(total)}</p>
+          <RawJson data={data} />
+        </div>
+      )
+    }
   }
 
   return <RawJson data={data} />
 }
 
-function RawJson({ data }: { data: any }) {
+function RawJson({ data }: { data: unknown }) {
   const [open, setOpen] = useState(false)
 
   return (
@@ -823,10 +913,15 @@ function RawJson({ data }: { data: any }) {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         Full response
-        {open ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
+        {open ? (
+          <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
       </button>
       {open ? (
         <pre className="max-h-72 overflow-auto border-t bg-muted/50 p-3 text-[11px]">
@@ -846,13 +941,18 @@ function SavedIdeaCard({ idea }: { idea: SavedIdea }) {
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center justify-between gap-3 p-4 text-left"
+        aria-expanded={open}
+        className="flex w-full items-center justify-between gap-3 p-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <div>
           <p className="font-medium">{TYPE_LABELS[idea.idea_type] || idea.idea_type}</p>
           <p className="text-xs text-muted-foreground">{formatDate(idea.created_at)}</p>
         </div>
-        {open ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        {open ? (
+          <ChevronUp className="h-4 w-4" aria-hidden="true" />
+        ) : (
+          <ChevronDown className="h-4 w-4" aria-hidden="true" />
+        )}
       </button>
       {open ? (
         <CardContent className="border-t pt-4">

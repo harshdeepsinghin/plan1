@@ -42,7 +42,7 @@ interface GeminiResponse {
   error?: { message?: string; status?: string }
 }
 
-class GeminiError extends Error {
+export class GeminiError extends Error {
   status: number
 
   constructor(message: string, status: number) {
@@ -163,6 +163,9 @@ async function callGemini(
       if (status === 400 || status === 401 || status === 403) {
         throw error
       }
+      if (error instanceof Error && error.message.includes("GOOGLE_GEMINI_API_KEY")) {
+        throw error
+      }
 
       // Retry rate limits once, but move to the next model immediately after a
       // timeout or high-demand response instead of burning another full timeout.
@@ -194,7 +197,8 @@ async function callGemini(
   throw new Error("Could not generate the plan. Please try again.")
 }
 
-function extractJson<T>(text: string): T {
+/** Exported for tests and for callers that need to inspect a raw payload. */
+export function extractJson<T>(text: string): T {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i)
   const candidate = (fenced ? fenced[1] : text).trim()
 
@@ -215,13 +219,28 @@ function extractJson<T>(text: string): T {
   }
 }
 
-export async function generateJSON<T>(prompt: string): Promise<T> {
+export async function generateJSON<T>(
+  prompt: string,
+  schema?: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }
+): Promise<T> {
   const text = await callGemini(prompt, { json: true })
-  return extractJson<T>(text)
+  const parsed = extractJson<unknown>(text)
+
+  if (!schema) return parsed as T
+
+  const result = schema.safeParse(parsed)
+  if (!result.success) {
+    throw new GeminiError(
+      "Gemini returned a plan we could not read. Please try again.",
+      502
+    )
+  }
+
+  return result.data
 }
 
-export async function generateText(prompt: string): Promise<string> {
-  return callGemini(prompt)
+export async function generateText(prompt: string, maxOutputTokens?: number): Promise<string> {
+  return callGemini(prompt, maxOutputTokens ? { maxOutputTokens } : {})
 }
 
 export const geminiConfig = {

@@ -1,20 +1,12 @@
 'use server'
 
-import { createClient } from '@/lib/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { requireEventEdit } from '@/lib/authorization'
 import { milestoneSchema } from '@/lib/validations/event'
 
-async function requireUser() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) throw new Error('Unauthorized')
-  return { supabase, user }
-}
 
 export async function createMilestone(eventId: string, formData: FormData) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
 
   const validated = milestoneSchema.parse(Object.fromEntries(formData.entries()))
 
@@ -33,7 +25,7 @@ export async function updateMilestone(
   eventId: string,
   formData: FormData
 ) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
 
   const validated = milestoneSchema.partial().parse(Object.fromEntries(formData.entries()))
 
@@ -54,7 +46,7 @@ export async function updateMilestone(
 }
 
 export async function toggleMilestone(milestoneId: string, eventId: string, completed: boolean) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
 
   const { error } = await supabase
     .from('milestones')
@@ -71,7 +63,7 @@ export async function toggleMilestone(milestoneId: string, eventId: string, comp
 }
 
 export async function deleteMilestone(milestoneId: string, eventId: string) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
 
   const { error } = await supabase
     .from('milestones')
@@ -88,9 +80,9 @@ export async function reorderMilestones(
   eventId: string,
   milestones: { id: string; sort_order: number }[]
 ) {
-  const { supabase } = await requireUser()
+  const { supabase } = await requireEventEdit(eventId)
 
-  await Promise.all(
+  const results = await Promise.all(
     milestones.map((milestone) =>
       supabase
         .from('milestones')
@@ -99,6 +91,9 @@ export async function reorderMilestones(
         .eq('event_id', eventId)
     )
   )
+
+  const failed = results.find((result) => result.error)
+  if (failed?.error) throw new Error(failed.error.message)
 
   revalidatePath(`/events/${eventId}/timeline`)
 }

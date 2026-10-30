@@ -112,13 +112,6 @@ ToastDescription.displayName = ToastPrimitives.Description.displayName
 
 // Toaster component for useToast hook
 function Toaster({ ...props }: React.ComponentPropsWithoutRef<typeof ToastViewport>) {
-  const [toasts, setToasts] = React.useState<React.ReactNode[]>([])
-
-  React.useEffect(() => {
-    // This is a simplified version - in practice you'd use the useToast hook's state
-    return () => {}
-  }, [])
-
   return (
     <ToastProvider>
       <ToastViewport {...props} />

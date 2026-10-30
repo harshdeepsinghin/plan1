@@ -26,7 +26,12 @@ export default async function DashboardLayout({
             avatarUrl: profile?.avatar_url || user.user_metadata?.avatar_url || null,
           }}
         />
-        <main className="mx-auto w-full max-w-[1600px] px-4 py-6 lg:px-6">{children}</main>
+        <main
+          id="main-content"
+          className="mx-auto w-full max-w-[1600px] px-4 py-6 lg:px-6"
+        >
+          {children}
+        </main>
       </div>
     </PreferencesProvider>
   )

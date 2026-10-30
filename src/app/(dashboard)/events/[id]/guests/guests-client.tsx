@@ -47,6 +47,7 @@ import {
   Heart,
 } from "lucide-react"
 import { cn, getStatusColor } from "@/lib/utils"
+import { MAX_CSV_BYTES, MAX_CSV_ROWS, parseCsv, toCsvValue } from "@/lib/csv"
 
 export interface Guest {
   id: string
@@ -69,58 +70,6 @@ interface Props {
 }
 
 const RSVP_OPTIONS = ["pending", "yes", "no", "maybe"]
-
-function toCsvValue(value: unknown): string {
-  const stringValue = value === null || value === undefined ? "" : String(value)
-  if (/[",\n\r]/.test(stringValue)) {
-    return `"${stringValue.replace(/"/g, '""')}"`
-  }
-  return stringValue
-}
-
-function parseCsv(text: string): string[][] {
-  const rows: string[][] = []
-  let row: string[] = []
-  let field = ""
-  let inQuotes = false
-
-  for (let index = 0; index < text.length; index += 1) {
-    const char = text[index]
-    const next = text[index + 1]
-
-    if (inQuotes) {
-      if (char === '"' && next === '"') {
-        field += '"'
-        index += 1
-      } else if (char === '"') {
-        inQuotes = false
-      } else {
-        field += char
-      }
-    } else if (char === '"') {
-      inQuotes = true
-    } else if (char === ",") {
-      row.push(field)
-      field = ""
-    } else if (char === "\n") {
-      row.push(field)
-      rows.push(row)
-      row = []
-      field = ""
-    } else if (char === "\r") {
-      // ignore, handled by \n
-    } else {
-      field += char
-    }
-  }
-
-  if (field.length > 0 || row.length > 0) {
-    row.push(field)
-    rows.push(row)
-  }
-
-  return rows.filter((entry) => entry.some((cell) => cell.trim() !== ""))
-}
 
 export function GuestsClient({ eventId, initialGuests }: Props) {
   const router = useRouter()
@@ -228,9 +177,16 @@ export function GuestsClient({ eventId, initialGuests }: Props) {
 
     setImporting(true)
     try {
+      if (file.size > MAX_CSV_BYTES) {
+        throw new Error("That file is larger than 2 MB. Split it into smaller lists.")
+      }
+
       const text = await file.text()
       const rows = parseCsv(text)
       if (rows.length < 2) throw new Error("The CSV appears to be empty")
+      if (rows.length > MAX_CSV_ROWS + 1) {
+        throw new Error(`Import at most ${MAX_CSV_ROWS.toLocaleString()} guests at a time.`)
+      }
 
       const headers = rows[0].map((header) => header.trim().toLowerCase())
       const nameIndex = headers.indexOf("name")
@@ -287,6 +243,7 @@ export function GuestsClient({ eventId, initialGuests }: Props) {
             ref={fileInputRef}
             type="file"
             accept=".csv,text/csv"
+            aria-label="Import guests from a CSV file"
             className="hidden"
             onChange={handleImport}
           />
@@ -339,7 +296,9 @@ export function GuestsClient({ eventId, initialGuests }: Props) {
         <div className="relative max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
+            type="search"
             placeholder="Search guests…"
+            aria-label="Search guests"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             className="pl-9"
@@ -386,7 +345,7 @@ export function GuestsClient({ eventId, initialGuests }: Props) {
       ) : (
         <Card>
           <CardContent className="overflow-x-auto p-0">
-            <Table>
+            <Table aria-label="Guest list">
               <TableHeader>
                 <TableRow>
                   <TableHead>Guest</TableHead>
@@ -423,7 +382,7 @@ export function GuestsClient({ eventId, initialGuests }: Props) {
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add a guest</DialogTitle>
-            <DialogDescription>They&apos;ll Add their details and RSVP status.</DialogDescription>
+            <DialogDescription>Add their details and RSVP status.</DialogDescription>
           </DialogHeader>
           <form action={handleCreate} className="space-y-4">
             <div className="space-y-2">

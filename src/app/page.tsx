@@ -79,7 +79,7 @@ export default function LandingPage() {
       <header className="sticky top-0 z-40 border-b border-border/60 bg-background/80 backdrop-blur-xl">
         <div className="container mx-auto flex h-16 items-center justify-between px-4">
           <BrandLogo href="/" />
-          <nav className="flex items-center gap-1.5">
+          <nav aria-label="Primary" className="flex items-center gap-1.5">
             <Link href="/auth/login">
               <Button variant="ghost" size="sm">
                 Sign in
@@ -91,6 +91,8 @@ export default function LandingPage() {
           </nav>
         </div>
       </header>
+
+      <main id="main-content">
 
       <section className="relative overflow-hidden py-20 lg:py-32">
         <div className="container mx-auto px-4">
@@ -264,6 +266,8 @@ export default function LandingPage() {
           </Card>
         </div>
       </section>
+
+      </main>
 
       <footer className="border-t bg-muted/50 py-12">
         <div className="container mx-auto flex flex-col items-center px-4 text-center text-muted-foreground">

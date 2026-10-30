@@ -4,7 +4,7 @@ import { createClient } from "@/lib/supabase/server"
 import { getCurrentProfile, getCurrentUser } from "@/lib/auth"
 import { createFormatters, resolvePreferences } from "@/lib/preferences"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -14,7 +14,6 @@ import {
   Plus,
   ArrowRight,
   Sparkles,
-  Clock,
   MapPin,
   PartyPopper,
   Bot,
@@ -26,6 +25,8 @@ import {
   getThemeColors,
   cn,
 } from "@/lib/utils"
+import { PendingInvites, type PendingInvite } from "@/components/dashboard/pending-invites"
+import type { AiTheme } from "@/types/database"
 
 export const metadata = {
   title: "Dashboard | plan1",
@@ -41,8 +42,12 @@ interface EventRecord {
   budget_total: number
   budget_spent: number
   status: string
-  ai_generated_theme: any
+  ai_generated_theme: AiTheme | null
   created_at: string
+}
+
+interface MembershipRecord {
+  events: EventRecord | null
 }
 
 export default async function DashboardPage() {
@@ -54,24 +59,28 @@ export default async function DashboardPage() {
   const formatters = createFormatters(resolvePreferences(profile))
   const { formatCurrency } = formatters
 
-  const [{ data: ownedEvents }, { data: memberships }] = await Promise.all([
-    supabase
-      .from("events")
-      .select("*")
-      .eq("user_id", user.id)
-      .order("created_at", { ascending: false }),
-    supabase
-      .from("event_collaborators")
-      .select("event_id, events(*)")
-      .eq("user_id", user.id)
-      .not("accepted_at", "is", null),
-  ])
+  const [{ data: ownedEvents }, { data: memberships }, { data: pendingInviteRows }] =
+    await Promise.all([
+      supabase
+        .from("events")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false }),
+      supabase
+        .from("event_collaborators")
+        .select("event_id, events(*)")
+        .eq("user_id", user.id)
+        .not("accepted_at", "is", null),
+      supabase.rpc("get_pending_invites"),
+    ])
 
-  const collaboratorEvents = (memberships || [])
-    .map((membership: any) => membership.events)
-    .filter(Boolean)
+  const pendingInvites = (pendingInviteRows || []) as PendingInvite[]
 
-  const events: EventRecord[] = [...(ownedEvents || []), ...collaboratorEvents].sort(
+  const collaboratorEvents = ((memberships ?? []) as unknown as MembershipRecord[])
+    .map((membership) => membership.events)
+    .filter((event): event is EventRecord => Boolean(event))
+
+  const events: EventRecord[] = [...((ownedEvents ?? []) as EventRecord[]), ...collaboratorEvents].sort(
     (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
   )
 
@@ -114,6 +123,8 @@ export default async function DashboardPage() {
           </Button>
         </div>
       </section>
+
+      <PendingInvites invites={pendingInvites} />
 
       {/* Stats */}
       <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -289,7 +300,7 @@ function EventCard({
             <span className="text-muted-foreground">Budget used</span>
             <span className="font-medium">{budgetPercent}%</span>
           </div>
-          <Progress value={budgetPercent} className="h-2" />
+          <Progress value={budgetPercent} className="h-2" aria-label="Budget used" />
           <p className="mt-1 text-xs text-muted-foreground">
             {formatCurrency(Number(event.budget_spent) || 0)} of{" "}
             {formatCurrency(Number(event.budget_total) || 0)}
@@ -305,8 +316,8 @@ function EventCard({
           </Button>
           {theme?.theme_name ? (
             <Button asChild size="sm" variant="outline" title={theme.theme_name}>
-              <Link href={`/events/${event.id}/ai-assistant`}>
-                <Sparkles className="h-4 w-4" />
+              <Link href={`/events/${event.id}/ai-assistant`} aria-label="Open AI assistant">
+                <Sparkles className="h-4 w-4" aria-hidden="true" />
               </Link>
             </Button>
           ) : null}

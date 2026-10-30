@@ -7,6 +7,11 @@ interface Props {
   params: Promise<{ id: string }>
 }
 
+interface CollaboratorRecord {
+  user_id: string
+  profiles: { full_name: string | null; email: string | null } | null
+}
+
 export default async function TasksPage({ params }: Props) {
   const { id } = await params
   const event = await getEvent(id)
@@ -27,7 +32,7 @@ export default async function TasksPage({ params }: Props) {
     owner
       ? { id: owner.id, name: owner.full_name || owner.email || "Event owner" }
       : { id: event.user_id, name: "Event owner" },
-    ...(collaborators || []).map((collaborator: any) => ({
+    ...((collaborators ?? []) as unknown as CollaboratorRecord[]).map((collaborator) => ({
       id: collaborator.user_id,
       name:
         collaborator.profiles?.full_name ||
