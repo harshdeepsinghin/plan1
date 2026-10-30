@@ -45,6 +45,9 @@ misc/
 .playwright-mcp/
 landing.png
 
+# test results
+test-results/
+
 # supabase CLI local state
 supabase/.temp/
 

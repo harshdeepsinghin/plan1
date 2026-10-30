@@ -382,7 +382,7 @@ export function GuestsClient({ eventId, initialGuests }: Props) {
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Add a guest</DialogTitle>
-            <DialogDescription>Add their details and RSVP status.</DialogDescription>
+            <DialogDescription>add their details and RSVP status.</DialogDescription>
           </DialogHeader>
           <form action={handleCreate} className="space-y-4">
             <div className="space-y-2">
